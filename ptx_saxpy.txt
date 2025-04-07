@@ -1,0 +1,35 @@
+_param_0:256
+_param_1:2
+_param_2:0
+_param_3:2048
+_param_4:4096
+
+
+ld.param.u64    %rd6, [_param_0];
+ld.param.u64    %rd2, [_param_1];
+ld.param.u64    %rd3, [_param_2];
+ld.param.u64    %rd4, [_param_3];
+ld.param.u64    %rd5, [_param_4];
+mov.u32         %r1, %ctaid.x;
+mov.u32         %r2, %ntid.x;
+mov.u32         %r3, %tid.x;
+mad.lo.s32      %r4, %r1, %r2, %r3;
+cvt.u64.u32     %rd1, %r4;
+setp.ge.s64     %p1, %rd1, %rd6;
+@%p1 bra        $L__BB0_2;
+
+cvta.to.global.u64      %rd7, %rd3;
+shl.b64         %rd8, %rd1, 3;
+add.s64         %rd9, %rd7, %rd8;
+ld.global.u64   %rd10, [%rd9];
+mul.lo.s64      %rd11, %rd10, %rd2;
+cvta.to.global.u64      %rd12, %rd4;
+add.s64         %rd13, %rd12, %rd8;
+ld.global.u64   %rd14, [%rd13];
+add.s64         %rd15, %rd11, %rd14;
+cvta.to.global.u64      %rd16, %rd5;
+add.s64         %rd17, %rd16, %rd8;
+st.global.u64   [%rd17], %rd15;
+
+$L__BB0_2:
+ret;

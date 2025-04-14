@@ -57,6 +57,56 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
 }
 
 /******************************************************************************
+ scheduler
+ ******************************************************************************/
+
+/**
+ * @brief Schedules the next warp to be executed
+ *
+ * Looks for warps that are
+ * 1. intitialized and not finished
+ * 2. not stalled from memory
+ * 3. does not have any hazards
+ * @return True if any instructions were successfully fetched.
+ */
+std::pair<trace_op *, uint64_t> Processor::scheduler() {
+  for (int i = 0; i < MAXWARPS; i++) {
+    if (warps[i].warpState == FINISHED || warps[i].warpState == UNITIALIZED)
+      continue;
+    else if (warps[i].warpState == STALLED)
+      continue;
+    else if (warps[i].warpState == RUNNABLE) {
+
+      // checks that there is no hazard
+      // ASSUMES that rs1 and rs2 can not be 0
+      trace_op *warpNextInstr = warps[i].dq_.front();
+      int rs1 = trace_op->src_reg[0];
+      int rs2 = trace_op->src_reg[1];
+      if (rs1 != 0 && warps[i].rf_[rs1].ready == false)
+        continue;
+      else if (rs2 != 0 && warps[i].rf_[rs2].ready == false)
+        continue;
+      else {
+        // no register conflicts, can return
+        int selectedWarp = i;
+        trace_op *warpInstr = warps[i].dq_.pop();
+        std::pair<trace_op *, uint64_t> returnPair;
+        returnPair.first = warpInstr;
+        returnPair.second = selectedWarp;
+        return returnPair;
+      }
+    }
+  }
+  // all warps are stalled
+  int selectedWarp = -1;
+  trace_op *warpInstr = NULL;
+  std::pair<trace_op *, uint64_t> returnPair;
+  returnPair.first = warpInstr;
+  returnPair.second = selectedWarp;
+  return returnPair;
+}
+
+/******************************************************************************
  Fetch
  ******************************************************************************/
 
@@ -75,6 +125,10 @@ bool Processor::Fetch() {
   trace_op *currentInstruction = instrPair.first;
   int warpNumber = instrPair.second;
 
+  // do not make progress if all warps are stalled
+  if (currentInstruction == NULL && warpNumber == -1)
+    return false;
+
   warp_t *scheduledWarp = &(warps[warpNumber]);
 
   // update register files
@@ -89,3 +143,51 @@ bool Processor::Fetch() {
   deq_.push(instrPair);
   return progress;
 }
+
+/******************************************************************************
+ Decode
+ ******************************************************************************/
+
+/**
+ * @brief Literally just stall 1 cycle
+ *
+ * @return True if any instruction can be executed next
+ */
+
+bool Processor::decode() {}
+
+/******************************************************************************
+ Execute
+ ******************************************************************************/
+
+/**
+ * @brief Literally just stall 1 cycle
+ *
+ * @return True if any instruction can be executed next
+ */
+
+bool Processor::execute() {}
+
+/******************************************************************************
+ Memory
+ ******************************************************************************/
+
+/**
+ * @brief Case on trace op and delay accordingly
+ *
+ * @return unsure what the return types are
+ */
+
+bool Processor::Memory() {}
+
+/******************************************************************************
+ Write back
+ ******************************************************************************/
+
+/**
+ * @brief Write back stalls 1 cycle and updates the register file
+ *
+ * @return unsure what the return types are
+ */
+
+bool Processor::Memory() {}

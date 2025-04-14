@@ -75,6 +75,7 @@ public:
   bool Execute();
   bool Mem();
   bool WriteBack();
+  std::pair<trace_op *, uint64_t> scheduler();
 
 private:
   /** @brief The sm number, currently just doing 1 */

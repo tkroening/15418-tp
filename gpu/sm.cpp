@@ -82,9 +82,9 @@ std::pair<trace_op *, uint64_t> Processor::scheduler() {
       trace_op *warpNextInstr = warps[i].dq_.front();
       int rs1 = trace_op->src_reg[0];
       int rs2 = trace_op->src_reg[1];
-      if (rs1 != 0 && warps[i].rf_[rs1].ready == false)
+      if (rs1 != -1 && warps[i].rf_[rs1].ready == false)
         continue;
-      else if (rs2 != 0 && warps[i].rf_[rs2].ready == false)
+      else if (rs2 != -1 && warps[i].rf_[rs2].ready == false)
         continue;
       else {
         // no register conflicts, can return
@@ -190,4 +190,4 @@ bool Processor::Memory() {}
  * @return unsure what the return types are
  */
 
-bool Processor::Memory() {}
+bool Processor::WB() {}

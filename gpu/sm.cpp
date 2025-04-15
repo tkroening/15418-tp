@@ -12,7 +12,7 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
   instructionCount_ = 0; // question: do I need self????
   // initialize registers and state of each warp
   for (int i = 0; i < MAXWARPS; i++) {
-    warp_t *currWarp = &(warps[i]); // question: do I need self.warps[i]????
+    warp_t *currWarp = &(warps_[i]); // question: do I need self.warps[i]????
 
     // only intialize active warps
     if (i < activeWarps) {
@@ -21,7 +21,7 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
 
       // Initialize the register file to have all registers be ready.
       for (int reg = 0; reg < REGISTER_COUNT; reg++) {
-        currWarp->rf_[reg] = {.register_num = reg, .tag = 0, .ready = true};
+        currWarp->rf_[reg] = {.regNum = reg, .ready = true};
       }
     } else {
       currWarp->warpState = UNINITIALIZED;
@@ -31,23 +31,24 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
   /** @brief moves all ops onto instruction queue of warps */
   trace_op *op;
   while (true) {
-    op = tr_->getNextOp(pid_);
+    // TODO: Hardcoded PID 0 because all warps will be getting same instructions anyway (?)
+    op = tr_->getNextOp(0);
     // if we reach end of trace file we break out of loop
     if (op == NULL) {
-      prinf("we got an null op!!\n");
+      std::cout << "We got a NULL op!!" << std::endl;
       break;
     } else {
       // adds the op onto the instruction queue of all initialized threads
       for (int i = 0; i < MAXWARPS; i++) {
-        warp_t *currWarp = &(warps[i]);
+        warp_t *currWarp = &(warps_[i]);
         if (currWarp->warpState != UNINITIALIZED)
           (currWarp->dq_).push_back({op, i});
       }
       instructionCount_++;
-      assert((warps[0].dq_).size() == instructionCount_);
+      assert((warps_[0].dq_).size() == instructionCount_);
     }
   }
-  assert((warps[0].dq_).size() == instructionCount_);
+  assert((warps_[0].dq_).size() == instructionCount_);
 
   // QUESTION: when we read all ops do we
 
@@ -69,30 +70,45 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
  * 3. does not have any hazards
  * @return True if any instructions were successfully fetched.
  */
-std::pair<trace_op *, uint64_t> Processor::scheduler() {
+
+// TODO: I think this was meant to belogn to the SM class? This needs to be double-checked.
+std::pair<trace_op *, uint64_t> SM::scheduler() {
   for (int i = 0; i < MAXWARPS; i++) {
-    if (warps[i].warpState == FINISHED || warps[i].warpState == UNITIALIZED)
+    if (warps_[i].warpState == FINISHED || warps_[i].warpState == UNINITIALIZED)
       continue;
-    else if (warps[i].warpState == STALLED)
+    else if (warps_[i].warpState == STALLED)
       continue;
-    else if (warps[i].warpState == RUNNABLE) {
+    else if (warps_[i].warpState == RUNNABLE) {
 
       // checks that there is no hazard
       // ASSUMES that rs1 and rs2 can not be 0
-      trace_op *warpNextInstr = warps[i].dq_.front();
-      int rs1 = trace_op->src_reg[0];
-      int rs2 = trace_op->src_reg[1];
-      if (rs1 != -1 && warps[i].rf_[rs1].ready == false)
+      auto [warp_next_instr, warp_id] = warps_[i].dq_.front();
+      
+      // Idk 
+      assert(warp_id == i);
+
+      // trace_op *warpNextInstr = warps_[i].dq_.front();
+
+      int rs1 = warp_next_instr->src_reg[0];
+      int rs2 = warp_next_instr->src_reg[1];
+
+      if (rs1 != -1 && warps_[i].rf_[rs1].ready == false)
         continue;
-      else if (rs2 != -1 && warps[i].rf_[rs2].ready == false)
+      else if (rs2 != -1 && warps_[i].rf_[rs2].ready == false)
         continue;
       else {
         // no register conflicts, can return
         int selectedWarp = i;
-        trace_op *warpInstr = warps[i].dq_.pop();
+
+        // trace_op *warpInstr = warps_[i].dq_.pop();
+        warps_[i].dq_.pop_front(); // TODO: Check if this is right
+        
         std::pair<trace_op *, uint64_t> returnPair;
-        returnPair.first = warpInstr;
+        
+        // TODO: Was this the intended instruction
+        returnPair.first = warp_next_instr;
         returnPair.second = selectedWarp;
+
         return returnPair;
       }
     }
@@ -117,7 +133,7 @@ std::pair<trace_op *, uint64_t> Processor::scheduler() {
  * @return True if any instruction can be executed next
  */
 
-bool Processor::Fetch() {
+bool SM::Fetch() {
   bool progress{false};
 
   std::pair<trace_op *, uint64_t> instrPair = scheduler();
@@ -129,10 +145,12 @@ bool Processor::Fetch() {
   if (currentInstruction == NULL && warpNumber == -1)
     return false;
 
-  warp_t *scheduledWarp = &(warps[warpNumber]);
+  warp_t *scheduledWarp = &(warps_[warpNumber]);
 
   // update register files
-  for (auto src : I->src_reg) {
+  
+  // TODO: What was "I" meant to be?
+  for (auto src : currentInstruction->src_reg) {
     // If the register is -1, it means no register is required.
     if (src == -1) {
       continue;
@@ -140,7 +158,7 @@ bool Processor::Fetch() {
     scheduledWarp->rf_[src].ready = false;
   }
 
-  deq_.push(instrPair);
+  fetch_decode_queue_.push(instrPair);
   return progress;
 }
 
@@ -154,7 +172,9 @@ bool Processor::Fetch() {
  * @return True if any instruction can be executed next
  */
 
-bool Processor::decode() {}
+bool SM::Decode() {
+  return false;
+}
 
 /******************************************************************************
  Execute
@@ -166,7 +186,9 @@ bool Processor::decode() {}
  * @return True if any instruction can be executed next
  */
 
-bool Processor::execute() {}
+bool SM::Execute() {
+  return false;
+}
 
 /******************************************************************************
  Memory
@@ -178,7 +200,9 @@ bool Processor::execute() {}
  * @return unsure what the return types are
  */
 
-bool Processor::Memory() {}
+bool SM::Mem() {
+  return false;
+}
 
 /******************************************************************************
  Write back
@@ -190,4 +214,6 @@ bool Processor::Memory() {}
  * @return unsure what the return types are
  */
 
-bool Processor::WB() {}
+bool SM::WriteBack() {
+  return false;
+}

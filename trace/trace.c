@@ -189,14 +189,14 @@ trace_op *getNextOp(int processorNum) {
     op->src_reg[0] = op1;
     op->src_reg[1] = op2;
     break;
-  case 'P':
-    op->op = PARAMS;
-    (void)!fscanf(tf, "%d, %d\n", &numBlocks, &threadsPerBlock);
-    op->numBlocks = numBlocks;
-    op->threadsPerBlock = threadsPerBlock;
-    printf("we are reading the param: blocks:%d, threadsPerBlock: %d\n",
-           numBlocks, threadsPerBlock);
-    break;
+  // case 'P':
+  //   op->op = PARAMS;
+  //   (void)!fscanf(tf, "%d, %d\n", &numBlocks, &threadsPerBlock);
+  //   op->numBlocks = numBlocks;
+  //   op->threadsPerBlock = threadsPerBlock;
+  //   printf("we are reading the param: blocks:%d, threadsPerBlock: %d\n",
+  //          numBlocks, threadsPerBlock);
+  //   break;
   default:
     fprintf(stderr, "Invalid op type: %x on %ld\n", opType, opCount);
     free(op);

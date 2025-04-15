@@ -2,12 +2,20 @@
 #include <cstdint>
 #include <queue>
 #include <unordered_map>
+#include <optional>
 
 extern "C" {
-#include "branch.h"
-#include "cache.h"
-#include "trace.h"
+  #include "processor.h"
+  #include "branch.h"
+  #include "cache.h"
+  #include "trace.h"
 }
+
+// TODO: This is a placeholder value for REGISTER_COUNT. Replace this!
+#define REGISTER_COUNT 18
+
+// TODO: This is a placeholder value for MAXWARPS. Replace this!
+#define MAXWARPS 15418
 
 typedef struct {
   int regNum; /** @brief The register's architectural number. */
@@ -47,7 +55,9 @@ typedef struct warp {
            // front
 
   /** @brief Sorted queue of finished instructions. */
-  std::vector<std::pair<proc_sq_slot_t, int>> finished_instructions_;
+  
+  // TODO: Replaced vector type - idk what was going here before
+  std::vector<int> finished_instructions_;
 } warp_t;
 
 class SM {
@@ -55,6 +65,8 @@ public:
   // Constructor
   SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
      trace_reader *tr, cache *cs, branch *bs, int activeWarps, int smid);
+
+  ProcessorArgs args_;
 
   /** @brief The processor simulator pointer. */
   processor *ps_;
@@ -86,7 +98,7 @@ private:
 
   /** @brief structure that stores all info about warps, similar to thread
    * control block*/
-  std::array<warp_t, MAXWARPS> warps;
+  std::array<warp_t, MAXWARPS> warps_;
 
   /** @brief Whether  a pending branch request. */
   std::optional<uint64_t> pending_branch_;
@@ -94,23 +106,28 @@ private:
   /** @brief Function pointer for memOpCallback */
   void (*memOpCallback_)(int, int64_t);
 
+  /*
+      Various queues. Recall the classic five-stage pipeline:
+      Fetch -> Decode -> Execute -> Mem -> Write Back
+  */
+
   /** @brief The queue of instructions going into decode stage
       produced by fetch and consumed by decode*/
   std::queue<std::pair<trace_op *, uint64_t>>
-      deq_; // should always have length 0 or 1;
+      fetch_decode_queue_; // should always have length 0 or 1;
 
-  /** @brief The queue of instructions going into decode stage
+  /** @brief The queue of instructions going into execute stage
        produced by deocde and consumed by execute*/
   std::queue<std::pair<trace_op *, uint64_t>>
-      deq_; // should always have length 0 or 1;
+      decode_execute_queue_; // should always have length 0 or 1;
 
   /** @brief The queue of instructions going into memory stage
       produced by execute and consumed by memory*/
   std::queue<std::pair<trace_op *, uint64_t>>
-      memq_; // should always have length 0 or 1;
+      execute_mem_queue_; // should always have length 0 or 1;
 
   /** @brief The queue of instructions going into write back stage
      produced by memory and consumed by wb */
   std::queue<std::pair<trace_op *, uint64_t>>
-      wbq_; // should always have length 0 or 1;
+      mem_wb_queue_; // should always have length 0 or 1;
 };

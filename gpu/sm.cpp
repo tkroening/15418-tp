@@ -17,7 +17,7 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
     // only intialize active warps
     if (i < activeWarps) {
       // all warps are initially runnable
-      currWarp->warpState = RUNNABLE;
+      currWarp->warpState = RUNNING;
 
       // Initialize the register file to have all registers be ready.
       for (int reg = 0; reg < REGISTER_COUNT; reg++) {
@@ -78,11 +78,14 @@ std::pair<trace_op *, uint64_t> SM::scheduler() {
     std::cout << "Warp " << i << " state: " << warps_[i].warpState << std::endl;
     if (warps_[i].warpState == FINISHED ||
         warps_[i].warpState == UNINITIALIZED) {
+      std::cout << "state is finished or uniintialized" << std::endl;
       continue;
     } else if (warps_[i].warpState == STALLED) {
+      std::cout << "state is stalled" << std::endl;
       continue;
     } else if (warps_[i].warpState == RUNNABLE) {
       if (warps_[i].dq_.empty()) {
+        std::cout << "dq is empty!" << std::endl;
         continue;
       }
       //   int *x = NULL;

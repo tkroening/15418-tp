@@ -83,7 +83,7 @@ std::pair<trace_op *, uint64_t> SM::scheduler() {
     } else if (warps_[i].warpState == STALLED) {
       std::cout << "state is stalled" << std::endl;
       continue;
-    } else if (warps_[i].warpState == RUNNABLE) {
+    } else if (warps_[i].warpState == RUNNABLE || warps_[i].warpState == RUNNING) {
       if (warps_[i].dq_.empty()) {
         std::cout << "dq is empty!" << std::endl;
         continue;
@@ -379,7 +379,9 @@ bool SM::WriteBack() {
   */
   int dest = instr->dest_reg;
 
-  warps_[warp_id].rf_[dest].ready = true;
+  if (dest >= 0) {
+    warps_[warp_id].rf_[dest].ready = true;
+  }
 
   // If we got here, then we made progress
 

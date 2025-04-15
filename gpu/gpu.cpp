@@ -12,8 +12,7 @@ extern "C" {
 }
 
 #include "sm.h"
-#define NUMBLOCKS 1;
-#define THREADSPERBLOCK 64;
+#define TOTALTHREADS 256
 #define THREADSPERWARP 32;
 #define NUMSM 1;
 
@@ -41,7 +40,7 @@ void memOpCallback(int, int64_t);
 //
 extern "C" processor *init(processor_sim_args *psa) {
   int op;
-  int totalThreads = (64);
+  int totalThreads = TOTALTHREADS;
   int totalWarps = totalThreads / THREADSPERWARP;
   tr = psa->tr;
   cs = psa->cache_sim;
@@ -96,8 +95,8 @@ extern "C" processor *init(processor_sim_args *psa) {
     // smid);
 
     SM *new_sm = new SM(memOpCallback, processor_args, self, tr, cs, bs,
-                        2, // TODO: Why is activeWarps an int? Why is it passed
-                           // in the constructor
+                        totalWarps, // TODO: Why is activeWarps an int? Why is
+                                    // it passed in the constructor
                         SMID);
 
     streaming_multiprocessors.push_back(new_sm);

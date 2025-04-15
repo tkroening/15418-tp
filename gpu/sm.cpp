@@ -11,25 +11,18 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
       bs_(bs), smid_(smid) {
   instructionCount_ = 0; // question: do I need self????
   // initialize registers and state of each warp
+
+  std::vector<warp_t> allWarps(
+      activeWarps); // need vector because size is variable
+
   for (int i = 0; i < MAXWARPS; i++) {
-    warp_t *currWarp = &(warps_[i]); // question: do I need self.warps[i]????
-
-    // only intialize active warps
-    if (i < activeWarps) {
-      // all warps are initially runnable
-      currWarp->warpState = RUNNABLE;
-
-      // Initialize the register file to have all registers be ready.
-      for (int reg = 0; reg < REGISTER_COUNT; reg++) {
-        currWarp->rf_[reg] = {.regNum = reg, .ready = true};
-      }
-    } else {
-      currWarp->warpState = UNINITIALIZED;
-    }
+    warp_t *currWarp = &(allWarps[i]); // question: do I need self.warps[i]????
+    currWarp->warpState = UNINITIALIZED;
   }
 
   /** @brief moves all ops onto instruction queue of warps */
   trace_op *op;
+
   while (true) {
     // TODO: Hardcoded PID 0 because all warps will be getting same instructions
     // anyway (?)
@@ -41,15 +34,37 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
       break;
     } else {
       // adds the op onto the instruction queue of all initialized threads
-      for (int i = 0; i < MAXWARPS; i++) {
-        warp_t *currWarp = &(warps_[i]);
-        if (currWarp->warpState != UNINITIALIZED)
-          (currWarp->dq_).push_back({op, i});
+      for (int i = 0; i < activeWarps; i++) {
+        warp_t *currWarp = &(allWarps[i]);
+        // if (currWarp->warpState != UNINITIALIZED)
+        (currWarp->dq_).push_back({op, -1}); // NOTE: -1 as we don't know which
+                                             // slot they belong in
       }
       instructionCount_++;
-      assert((warps_[0].dq_).size() == instructionCount_);
+      assert((allWarps[0].dq_).size() == instructionCount_);
     }
   }
+
+  // move data from allWarps to waitingWarps;
+  for (int i = 0; i < activeWarps; i++) {
+    warp_t currWarp = allWarps[i];
+    waitingWarps.push(currWarp);
+  }
+
+  // pop data from waitingWarps to
+  for (int i = 0; i < std::min(activeWarps, MAXWARPS); i++) {
+    warps_[i] = waitingWarps.front();
+    waitingWarps.pop();
+    warp_t *currWarp = &(warps_[i]);
+
+    currWarp->warpState = RUNNABLE;
+
+    // Initialize the register file to have all registers be ready.
+    for (int reg = 0; reg < REGISTER_COUNT; reg++) {
+      currWarp->rf_[reg] = {.regNum = reg, .ready = true};
+    }
+  }
+
   assert((warps_[0].dq_).size() == instructionCount_);
 
   // QUESTION: when we read all ops do we
@@ -91,8 +106,9 @@ std::pair<trace_op *, uint64_t> SM::scheduler() {
       // ASSUMES that rs1 and rs2 can not be 0
       auto [warp_next_instr, warp_id] = warps_[i].dq_.front();
 
-      // Idk
-      assert(warp_id == i);
+      // IDK: removed all tags and instead will generate them when scheduler
+      // dispatches
+      assert(warp_id == -1);
 
       // trace_op *warpNextInstr = warps_[i].dq_.front();
 
@@ -129,6 +145,20 @@ std::pair<trace_op *, uint64_t> SM::scheduler() {
           warp_t *currWarp = &(warps_[i]);
           std::cout << "warp: " << i << " has finished!" << std::endl;
           currWarp->warpState = FINISHED;
+        }
+
+        // schedule new warp if current warp is finished
+        if (warps_[i].warpState == FINISHED && waitingWarps.size() > 0) {
+          warps_[i] = waitingWarps.front();
+          waitingWarps.pop();
+          warp_t *currWarp = &(warps_[i]);
+
+          currWarp->warpState = RUNNABLE;
+
+          // Initialize the register file to have all registers be ready.
+          for (int reg = 0; reg < REGISTER_COUNT; reg++) {
+            currWarp->rf_[reg] = {.regNum = reg, .ready = true};
+          }
         }
 
         return returnPair;

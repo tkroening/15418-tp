@@ -15,7 +15,7 @@ extern "C" {
 #define REGISTER_COUNT 18
 
 // TODO: This is a placeholder value for MAXWARPS. Replace this!
-#define MAXWARPS 2
+#define MAXWARPS 4
 
 typedef struct {
   int regNum; /** @brief The register's architectural number. */
@@ -79,6 +79,9 @@ public:
 
   /** @brief The branch predictor simulator pointer, not current focus*/
   branch *bs_;
+
+  /**the queue of active warps waiting for a slot */
+  std::queue<warp_t> waitingWarps;
 
   int instructionCount_;
 

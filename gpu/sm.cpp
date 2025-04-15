@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <stdio.h>
+#include <sys/types.h>
 
 // Constructor
 SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
@@ -35,7 +36,7 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
     op = tr_->getNextOp(0);
     // if we reach end of trace file we break out of loop
     if (op == NULL) {
-      std::cout << "We got a NULL op!!" << std::endl;
+      std::cout << "Finished reading tracefile (hit NULL). Read " << instructionCount_ << " instructions." << std::endl;
       break;
     } else {
       // adds the op onto the instruction queue of all initialized threads
@@ -53,8 +54,6 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
   // QUESTION: when we read all ops do we
 
   // initialize insturction queue of each warp
-
-  std::cout << "SM constructor" << std::endl;
 }
 
 /******************************************************************************
@@ -71,14 +70,21 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
  * @return True if any instructions were successfully fetched.
  */
 
-// TODO: I think this was meant to belogn to the SM class? This needs to be double-checked.
+// TODO: I think this was meant to belong to the SM class? This needs to be double-checked.
 std::pair<trace_op *, uint64_t> SM::scheduler() {
   for (int i = 0; i < MAXWARPS; i++) {
-    if (warps_[i].warpState == FINISHED || warps_[i].warpState == UNINITIALIZED)
+    std::cout << "Warp " << i << " state: " << warps_[i].warpState << std::endl;
+    if (warps_[i].warpState == FINISHED || warps_[i].warpState == UNINITIALIZED) {
       continue;
-    else if (warps_[i].warpState == STALLED)
+    }
+    else if (warps_[i].warpState == STALLED) {
       continue;
+    }
     else if (warps_[i].warpState == RUNNABLE) {
+
+      if (warps_[i].dq_.empty()) {
+        continue;
+      }
 
       // checks that there is no hazard
       // ASSUMES that rs1 and rs2 can not be 0
@@ -92,10 +98,14 @@ std::pair<trace_op *, uint64_t> SM::scheduler() {
       int rs1 = warp_next_instr->src_reg[0];
       int rs2 = warp_next_instr->src_reg[1];
 
-      if (rs1 != -1 && warps_[i].rf_[rs1].ready == false)
+      if (rs1 != -1 && warps_[i].rf_[rs1].ready == false) {
+        std::cout << "Register rs1=" << rs1 << " is not ready, so the instruction (" << warp_next_instr << ")" <<  " is stalled" << std::endl;
         continue;
-      else if (rs2 != -1 && warps_[i].rf_[rs2].ready == false)
+      }
+      else if (rs2 != -1 && warps_[i].rf_[rs2].ready == false) {
+        std::cout << "Register rs2=" << rs2 << " is not ready, so the warp is stalled" << std::endl;
         continue;
+      }
       else {
         // no register conflicts, can return
         int selectedWarp = i;
@@ -114,6 +124,7 @@ std::pair<trace_op *, uint64_t> SM::scheduler() {
     }
   }
   // all warps are stalled
+  std::cout << "All warps are stalled." << std::endl;
   int selectedWarp = -1;
   trace_op *warpInstr = NULL;
   std::pair<trace_op *, uint64_t> returnPair;
@@ -134,12 +145,24 @@ std::pair<trace_op *, uint64_t> SM::scheduler() {
  */
 
 bool SM::Fetch() {
-  bool progress{false};
+  bool progress = false;
+
+  /*
+      If the queue going into the "Decode" stage already has instructions in it,
+      then the pipeline is stalled and we do not make progress.
+  */
+
+  if (!fetch_decode_queue_.empty()) {
+    return progress;
+  }
 
   std::pair<trace_op *, uint64_t> instrPair = scheduler();
 
   trace_op *currentInstruction = instrPair.first;
-  int warpNumber = instrPair.second;
+  uint64_t warpNumber = instrPair.second;
+
+  std::cout << "Current Instruction" << " (Warp #" << warpNumber << ")" << ": " <<  currentInstruction << std::endl;
+
 
   // do not make progress if all warps are stalled
   if (currentInstruction == NULL && warpNumber == -1)
@@ -159,7 +182,9 @@ bool SM::Fetch() {
   }
 
   fetch_decode_queue_.push(instrPair);
-  return progress;
+
+  // If we got here, then we made progress
+  return true;
 }
 
 /******************************************************************************
@@ -173,7 +198,36 @@ bool SM::Fetch() {
  */
 
 bool SM::Decode() {
-  return false;
+  /*
+      For now, just shunt the instruction along to the next stage.
+  */
+  bool progress = false;
+
+  if (!decode_execute_queue_.empty()) {
+    /*
+        TODO: For now, we exit if the next stage is stalled and do not perform 
+        any additional logic. We may have to revisit this assumption later.
+    */
+    return progress;
+  }
+
+  if (fetch_decode_queue_.empty()) {
+    // This phase did not do anything, since we have nothing to fetch
+    return progress;
+  }
+
+  auto instrPair = fetch_decode_queue_.front();  
+
+  /*
+    DANGER: Don't want to pop this unless the next phase can receive it. Note
+    the "decode_execute_queue" guard above.
+  */
+  fetch_decode_queue_.pop();
+
+  decode_execute_queue_.push(instrPair);
+
+  // If we got here, then we made progress
+  return true;
 }
 
 /******************************************************************************
@@ -187,7 +241,37 @@ bool SM::Decode() {
  */
 
 bool SM::Execute() {
-  return false;
+  /*
+      TODO: For now, we just shunt the instruction along to the next phase again.
+      Later, we'll want to introduce variable delays for instructions.
+  */
+
+  bool progress = false;
+
+  if (!execute_mem_queue_.empty()) {
+    /*
+        TODO: For now, we return immediately if the next stage of the pipeline
+        is stalled. We therefore perform no extra logic, so we might need to
+        revisit this later.
+    */
+    return progress;
+  }
+
+  if (decode_execute_queue_.empty()) {
+    /*
+        TODO: If we have nothing to consume, then we did not make progress.
+    */
+    return progress;
+  }
+
+  auto instrPair = decode_execute_queue_.front();
+  
+  // DANGER: make sure instruction is not thrown away
+  decode_execute_queue_.pop();
+  execute_mem_queue_.push(instrPair);
+
+  // If we got here, then we made progress
+  return true;
 }
 
 /******************************************************************************
@@ -201,7 +285,38 @@ bool SM::Execute() {
  */
 
 bool SM::Mem() {
-  return false;
+  /*
+      TODO: For now, we just shunt the instruction along to the next phase again.
+      Later, we'll want to introduce delays, or integrate with various "memory"
+      components.
+  */
+
+  bool progress = false;
+
+  if (!mem_wb_queue_.empty()) {
+    /*
+        TODO: For now, we return immediately if the next stage of the pipeline
+        is stalled. We therefore perform no extra logic, so we might need to
+        revisit this later.
+    */
+    return progress;
+  }
+
+  if (execute_mem_queue_.empty()) {
+    /*
+        TODO: If we have nothing to consume, then we did not make progress.
+    */
+    return progress;
+  }
+
+  auto instrPair = execute_mem_queue_.front();
+  
+  // DANGER: make sure instruction is not thrown away
+  execute_mem_queue_.pop();
+  mem_wb_queue_.push(instrPair);
+
+  // If we got here, then we made progress
+  return true;
 }
 
 /******************************************************************************
@@ -215,5 +330,45 @@ bool SM::Mem() {
  */
 
 bool SM::WriteBack() {
-  return false;
+  /*
+    TODO: For now, we just mark the instruction as finished. We'll probably
+    need to revisit this.
+  */
+
+  bool progress = false;
+
+  // TODO: Is there anything that can stall this pipeline phase?
+
+  if (mem_wb_queue_.empty()) {
+    /*
+        TODO: If we have nothing to consume, then we did not make progress.
+    */
+    return progress;
+  }
+
+  auto [instr, warp_id] = mem_wb_queue_.front();
+  
+  // DANGER: make sure instruction is not thrown away
+  mem_wb_queue_.pop();
+
+  // TODO: Maybe need to push onto "finished instructions" (?)
+
+  /*
+      My understanding is that write back is where you would mark registers as
+      ready. 
+
+      Idk about the "hazard" of identical source and destination registers
+      (Source: https://en.wikipedia.org/wiki/Classic_RISC_pipeline)
+
+      TODO: What about the destination register.
+  */
+  int rs1 = instr->src_reg[0];
+  int rs2 = instr->src_reg[1];
+
+  warps_[warp_id].rf_[rs1].ready = true;
+  warps_[warp_id].rf_[rs2].ready = true;
+
+
+  // If we got here, then we made progress
+  return true;
 }

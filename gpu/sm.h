@@ -15,7 +15,7 @@ extern "C" {
 #define REGISTER_COUNT 18
 
 // TODO: This is a placeholder value for MAXWARPS. Replace this!
-#define MAXWARPS 15418
+#define MAXWARPS 1
 
 typedef struct {
   int regNum; /** @brief The register's architectural number. */

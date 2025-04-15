@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <iostream>
 
 extern "C" {
     #include "processor.h"
@@ -10,10 +11,14 @@ extern "C" {
     #include "branch.h"
 }
 
+#include "sm.h"
+
 trace_reader* tr = NULL;
 cache* cs = NULL;
 branch* bs = NULL;
-processor* self = NULL;
+
+// processor* self = NULL;
+std::vector<SM *> streaming_multiprocessors;
 
 int processorCount = 1;
 int CADSS_VERBOSE = 0;
@@ -21,6 +26,9 @@ int CADSS_VERBOSE = 0;
 int* pendingMem = NULL;
 int* pendingBranch = NULL;
 int64_t* memOpTag = NULL;
+
+// Need this prototype so the reference is defined in `init`:
+void memOpCallback(int, int64_t);
 
 //
 // init
@@ -34,6 +42,9 @@ extern "C" processor* init(processor_sim_args* psa)
     tr = psa->tr;
     cs = psa->cache_sim;
     bs = psa->branch_sim;
+
+    // TODO: Replace with something relevant to SMs. For now, this is a dummy
+    ProcessorArgs processor_args;
 
     // TODO - get argument list from assignment
     while ((op = getopt(psa->arg_count, psa->arg_list, "f:d:m:j:k:c:")) != -1)
@@ -70,7 +81,31 @@ extern "C" processor* init(processor_sim_args* psa)
     pendingMem = (int *) calloc(processorCount, sizeof(int));
     memOpTag = (int64_t *) calloc(processorCount, sizeof(int64_t));
 
-    self = (processor *) calloc(1, sizeof(processor));
+    processor *self = new processor;
+    self->si.tick = tick;
+    self->si.finish = finish;
+    self->si.destroy = destroy;
+
+    // Initialize all streaming multiprocessors -- just one for now
+    uint num_SMs = 1;
+    for (int SMID = 0; SMID < num_SMs; SMID++) {
+        // SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
+        // trace_reader *tr, cache *cs, branch *bs, int activeWarps, int smid);
+
+        SM *new_sm = new SM(
+            memOpCallback,
+            processor_args,
+            self,
+            tr,
+            cs,
+            bs,
+            1, // TODO: Why is activeWarps an int? Why is it passed in the constructor
+            SMID
+        );
+
+        streaming_multiprocessors.push_back(new_sm);
+    }
+
     return self;
 }
 
@@ -114,6 +149,9 @@ extern "C" int tick(void)
     cs->si.tick();
     tickCount++;
 
+    std::cout << std::endl;
+    std::cout << "Tick: " << tickCount << std::endl;
+
     if (tickCount == stallCount)
     {
         printf(
@@ -129,54 +167,21 @@ extern "C" int tick(void)
     }
 
     int progress = 0;
-    for (int i = 0; i < processorCount; i++)
-    {
-        if (pendingMem[i] == 1)
-        {
-            progress = 1;
-            continue;
-        }
+    for (auto &sm : streaming_multiprocessors) {
+        /*
+            Process pipeline phases backwards
+            - Fetch
+            - Decode
+            - Execute
+            - Mem
+            - WB
+        */
 
-        // In the full processor simulator, the branch is pending until
-        //   it has executed.
-        if (pendingBranch[i] > 0)
-        {
-            pendingBranch[i]--;
-            progress = 1;
-            continue;
-        }
-
-        // TODO: get and manage ops for each processor core
-        nextOp = tr->getNextOp(i);
-
-        if (nextOp == NULL)
-            continue;
-
-        progress = 1;
-
-        switch (nextOp->op)
-        {
-            case MEM_LOAD:
-            case MEM_STORE:
-                pendingMem[i] = 1;
-                cs->memoryRequest(nextOp, i, makeTag(i, memOpTag[i]),
-                                  memOpCallback);
-                break;
-
-            case BRANCH:
-                pendingBranch[i]
-                    = (bs->branchRequest(nextOp, i) == nextOp->nextPCAddress)
-                          ? 0
-                          : 1;
-                break;
-
-            case ALU:
-            case ALU_LONG:
-
-                break;
-        }
-
-        free(nextOp);
+        progress |= sm->WriteBack();
+        progress |= sm->Mem();
+        progress |= sm->Execute();
+        progress |= sm->Decode();
+        progress |= sm->Fetch();
     }
 
     return progress;
@@ -184,6 +189,9 @@ extern "C" int tick(void)
 
 extern "C" int finish(int outFd)
 {
+    /*
+        TODO: This needs to be updated for streaming multiprocessors
+    */
     int c = cs->si.finish(outFd);
     int b = bs->si.finish(outFd);
 
@@ -199,6 +207,9 @@ extern "C" int finish(int outFd)
 
 extern "C" int destroy(void)
 {
+    /*
+        TODO: This needs to be updated for streaming multiprocessors
+    */
     int c = cs->si.destroy();
     int b = bs->si.destroy();
 

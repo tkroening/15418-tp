@@ -1,21 +1,21 @@
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <queue>
 #include <unordered_map>
-#include <optional>
 
 extern "C" {
-  #include "processor.h"
-  #include "branch.h"
-  #include "cache.h"
-  #include "trace.h"
+#include "branch.h"
+#include "cache.h"
+#include "processor.h"
+#include "trace.h"
 }
 
 // TODO: This is a placeholder value for REGISTER_COUNT. Replace this!
 #define REGISTER_COUNT 18
 
 // TODO: This is a placeholder value for MAXWARPS. Replace this!
-#define MAXWARPS 1
+#define MAXWARPS 2
 
 typedef struct {
   int regNum; /** @brief The register's architectural number. */
@@ -55,7 +55,7 @@ typedef struct warp {
            // front
 
   /** @brief Sorted queue of finished instructions. */
-  
+
   // TODO: Replaced vector type - idk what was going here before
   std::vector<int> finished_instructions_;
 } warp_t;

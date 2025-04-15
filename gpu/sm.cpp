@@ -9,7 +9,6 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
        trace_reader *tr, cache *cs, branch *bs, int activeWarps, int smid)
     : memOpCallback_(memOpCallback), args_(args), ps_(self), tr_(tr), cs_(cs),
       bs_(bs), smid_(smid) {
-
   instructionCount_ = 0; // question: do I need self????
   // initialize registers and state of each warp
   for (int i = 0; i < MAXWARPS; i++) {
@@ -32,11 +31,13 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
   /** @brief moves all ops onto instruction queue of warps */
   trace_op *op;
   while (true) {
-    // TODO: Hardcoded PID 0 because all warps will be getting same instructions anyway (?)
+    // TODO: Hardcoded PID 0 because all warps will be getting same instructions
+    // anyway (?)
     op = tr_->getNextOp(0);
     // if we reach end of trace file we break out of loop
     if (op == NULL) {
-      std::cout << "Finished reading tracefile (hit NULL). Read " << instructionCount_ << " instructions." << std::endl;
+      std::cout << "Finished reading tracefile (hit NULL). Read "
+                << instructionCount_ << " instructions." << std::endl;
       break;
     } else {
       // adds the op onto the instruction queue of all initialized threads
@@ -70,27 +71,27 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
  * @return True if any instructions were successfully fetched.
  */
 
-// TODO: I think this was meant to belong to the SM class? This needs to be double-checked.
+// TODO: I think this was meant to belong to the SM class? This needs to be
+// double-checked.
 std::pair<trace_op *, uint64_t> SM::scheduler() {
   for (int i = 0; i < MAXWARPS; i++) {
     std::cout << "Warp " << i << " state: " << warps_[i].warpState << std::endl;
-    if (warps_[i].warpState == FINISHED || warps_[i].warpState == UNINITIALIZED) {
+    if (warps_[i].warpState == FINISHED ||
+        warps_[i].warpState == UNINITIALIZED) {
       continue;
-    }
-    else if (warps_[i].warpState == STALLED) {
+    } else if (warps_[i].warpState == STALLED) {
       continue;
-    }
-    else if (warps_[i].warpState == RUNNABLE) {
-
+    } else if (warps_[i].warpState == RUNNABLE) {
       if (warps_[i].dq_.empty()) {
         continue;
       }
-
+      //   int *x = NULL;
+      //   *x = 1;
       // checks that there is no hazard
       // ASSUMES that rs1 and rs2 can not be 0
       auto [warp_next_instr, warp_id] = warps_[i].dq_.front();
-      
-      // Idk 
+
+      // Idk
       assert(warp_id == i);
 
       // trace_op *warpNextInstr = warps_[i].dq_.front();
@@ -99,25 +100,36 @@ std::pair<trace_op *, uint64_t> SM::scheduler() {
       int rs2 = warp_next_instr->src_reg[1];
 
       if (rs1 != -1 && warps_[i].rf_[rs1].ready == false) {
-        std::cout << "Register rs1=" << rs1 << " is not ready, so the instruction (" << warp_next_instr << ")" <<  " is stalled" << std::endl;
+        std::cout << "Register rs1=" << rs1
+                  << " is not ready, so the instruction (" << warp_next_instr
+                  << ")"
+                  << " is stalled" << std::endl;
         continue;
-      }
-      else if (rs2 != -1 && warps_[i].rf_[rs2].ready == false) {
-        std::cout << "Register rs2=" << rs2 << " is not ready, so the warp is stalled" << std::endl;
+      } else if (rs2 != -1 && warps_[i].rf_[rs2].ready == false) {
+        std::cout << "Register rs2=" << rs2
+                  << " is not ready, so the warp is stalled" << std::endl;
         continue;
-      }
-      else {
+      } else {
         // no register conflicts, can return
         int selectedWarp = i;
 
         // trace_op *warpInstr = warps_[i].dq_.pop();
         warps_[i].dq_.pop_front(); // TODO: Check if this is right
-        
+
         std::pair<trace_op *, uint64_t> returnPair;
-        
-        // TODO: Was this the intended instruction
+
+        // TODO: Was this the intended instruction (Ethan: YES)
         returnPair.first = warp_next_instr;
         returnPair.second = selectedWarp;
+
+        // TODO: put this in wb stage
+        // this means that schedule should happen in fetch_falling and
+        // wb should all do it's computation in rising
+        if (warps_[i].dq_.size() == 0) {
+          warp_t *currWarp = &(warps_[i]);
+          std::cout << "warp: " << i << " has finished!" << std::endl;
+          currWarp->warpState = FINISHED;
+        }
 
         return returnPair;
       }
@@ -161,8 +173,9 @@ bool SM::Fetch() {
   trace_op *currentInstruction = instrPair.first;
   uint64_t warpNumber = instrPair.second;
 
-  std::cout << "Current Instruction" << " (Warp #" << warpNumber << ")" << ": " <<  currentInstruction << std::endl;
-
+  std::cout << "Current Instruction"
+            << " (Warp #" << warpNumber << ")"
+            << ": " << currentInstruction << std::endl;
 
   // do not make progress if all warps are stalled
   if (currentInstruction == NULL && warpNumber == -1)
@@ -171,14 +184,13 @@ bool SM::Fetch() {
   warp_t *scheduledWarp = &(warps_[warpNumber]);
 
   // update register files
-  
+
   // TODO: What was "I" meant to be?
-  for (auto src : currentInstruction->src_reg) {
-    // If the register is -1, it means no register is required.
-    if (src == -1) {
-      continue;
-    }
-    scheduledWarp->rf_[src].ready = false;
+  int dest = currentInstruction->dest_reg;
+
+  // If the register is -1, it means no register is required.
+  if (dest != -1) {
+    scheduledWarp->rf_[dest].ready = false;
   }
 
   fetch_decode_queue_.push(instrPair);
@@ -205,7 +217,7 @@ bool SM::Decode() {
 
   if (!decode_execute_queue_.empty()) {
     /*
-        TODO: For now, we exit if the next stage is stalled and do not perform 
+        TODO: For now, we exit if the next stage is stalled and do not perform
         any additional logic. We may have to revisit this assumption later.
     */
     return progress;
@@ -216,7 +228,7 @@ bool SM::Decode() {
     return progress;
   }
 
-  auto instrPair = fetch_decode_queue_.front();  
+  auto instrPair = fetch_decode_queue_.front();
 
   /*
     DANGER: Don't want to pop this unless the next phase can receive it. Note
@@ -242,8 +254,8 @@ bool SM::Decode() {
 
 bool SM::Execute() {
   /*
-      TODO: For now, we just shunt the instruction along to the next phase again.
-      Later, we'll want to introduce variable delays for instructions.
+      TODO: For now, we just shunt the instruction along to the next phase
+     again. Later, we'll want to introduce variable delays for instructions.
   */
 
   bool progress = false;
@@ -265,7 +277,7 @@ bool SM::Execute() {
   }
 
   auto instrPair = decode_execute_queue_.front();
-  
+
   // DANGER: make sure instruction is not thrown away
   decode_execute_queue_.pop();
   execute_mem_queue_.push(instrPair);
@@ -286,9 +298,9 @@ bool SM::Execute() {
 
 bool SM::Mem() {
   /*
-      TODO: For now, we just shunt the instruction along to the next phase again.
-      Later, we'll want to introduce delays, or integrate with various "memory"
-      components.
+      TODO: For now, we just shunt the instruction along to the next phase
+     again. Later, we'll want to introduce delays, or integrate with various
+     "memory" components.
   */
 
   bool progress = false;
@@ -310,7 +322,7 @@ bool SM::Mem() {
   }
 
   auto instrPair = execute_mem_queue_.front();
-  
+
   // DANGER: make sure instruction is not thrown away
   execute_mem_queue_.pop();
   mem_wb_queue_.push(instrPair);
@@ -347,7 +359,7 @@ bool SM::WriteBack() {
   }
 
   auto [instr, warp_id] = mem_wb_queue_.front();
-  
+
   // DANGER: make sure instruction is not thrown away
   mem_wb_queue_.pop();
 
@@ -355,20 +367,18 @@ bool SM::WriteBack() {
 
   /*
       My understanding is that write back is where you would mark registers as
-      ready. 
+      ready.
 
       Idk about the "hazard" of identical source and destination registers
       (Source: https://en.wikipedia.org/wiki/Classic_RISC_pipeline)
 
       TODO: What about the destination register.
   */
-  int rs1 = instr->src_reg[0];
-  int rs2 = instr->src_reg[1];
+  int dest = instr->dest_reg;
 
-  warps_[warp_id].rf_[rs1].ready = true;
-  warps_[warp_id].rf_[rs2].ready = true;
-
+  warps_[warp_id].rf_[dest].ready = true;
 
   // If we got here, then we made progress
+
   return true;
 }

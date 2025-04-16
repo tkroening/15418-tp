@@ -116,11 +116,12 @@ trace_op *getNextOp(int processorNum) {
   tf = traceFile[processorNum];
 
   // TODO - Support for other basic formats
-  char opType = 0;
+  char opType = 0; // A, X, B, L, S
+  char specific = 0;
   uint64_t memAddress, pcAddress, nextPC;
   int opSize;
   int32_t op0, op1, op2, numBlocks, threadsPerBlock;
-  if (0 == fscanf(tf, "%c", &opType)) {
+  if (0 == fscanf(tf, "%c %c", &opType, &specific)) {
     free(op);
     return NULL;
   }
@@ -136,8 +137,51 @@ trace_op *getNextOp(int processorNum) {
     (void)!fscanf(tf, "%lx %d, %d, %d\n", &pcAddress, &op0, &op1, &op2);
     op->pcAddress = pcAddress;
     op->dest_reg = op0;
-    op->src_reg[0] = op1;
-    op->src_reg[1] = op2;
+    switch (specific) {
+    case '0': // ADD
+      op->alu_op = ADD;
+      op->mem_op = MEM_INVALID;
+      op->immediateVal = -1;
+      op->src_reg[0] = op1;
+      op->src_reg[1] = op2;
+      printf("we are doing a add\n");
+      break;
+    case '1': // ADDI
+      op->alu_op = ADDI;
+      op->mem_op = MEM_INVALID;
+      op->immediateVal = op2;
+      op->src_reg[0] = op1;
+      op->src_reg[1] = -1;
+      break;
+    case '2': // SUB
+      op->alu_op = SUB;
+      op->mem_op = MEM_INVALID;
+      op->immediateVal = -1;
+      op->src_reg[0] = op1;
+      op->src_reg[1] = op2;
+      break;
+    case '3': // SUBI
+      op->alu_op = SUBI;
+      op->mem_op = MEM_INVALID;
+      op->immediateVal = op2;
+      op->src_reg[0] = op1;
+      op->src_reg[1] = -1;
+      break;
+    case '4': // MUL
+      op->alu_op = MUL;
+      op->mem_op = MEM_INVALID;
+      op->immediateVal = -1;
+      op->src_reg[0] = op1;
+      op->src_reg[1] = op2;
+      break;
+    case '5': // MULI
+      op->alu_op = MULI;
+      op->mem_op = MEM_INVALID;
+      op->immediateVal = op2;
+      op->src_reg[0] = op1;
+      op->src_reg[1] = -1;
+      break;
+    }
     break;
   case 'B':
     op->op = BRANCH;
@@ -148,6 +192,9 @@ trace_op *getNextOp(int processorNum) {
       (void)!fscanf(tf, "\n");
       op->src_reg[0] = -1;
     }
+    op->alu_op = ALU_INVALID;
+    op->mem_op = MEM_INVALID;
+    op->immediateVal = -1;
     op->pcAddress = pcAddress;
     op->nextPCAddress = nextPC;
     op->src_reg[1] = -1;
@@ -155,6 +202,9 @@ trace_op *getNextOp(int processorNum) {
     break;
   case 'L':
     op->op = MEM_LOAD;
+    op->alu_op = ALU_INVALID;
+    op->mem_op = REG;
+    op->immediateVal = -1;
     (void)!fscanf(tf, "%lx,%d", &memAddress, &opSize);
     if (1 == fscanf(tf, " %d\n", &op0)) {
       op->src_reg[0] = op0;
@@ -169,6 +219,9 @@ trace_op *getNextOp(int processorNum) {
     break;
   case 'S':
     op->op = MEM_STORE;
+    op->alu_op = ALU_INVALID;
+    op->mem_op = REG;
+    op->immediateVal = -1;
     (void)!fscanf(tf, "%lx,%d", &memAddress, &opSize);
     if (1 == fscanf(tf, " %d\n", &op0)) {
       op->dest_reg = op0;
@@ -183,6 +236,9 @@ trace_op *getNextOp(int processorNum) {
     break;
   case 'X':
     op->op = ALU_LONG;
+    op->alu_op = ALU_INVALID;
+    op->mem_op = REG;
+    op->immediateVal = -1;
     (void)!fscanf(tf, "%lx %d, %d, %d\n", &pcAddress, &op0, &op1, &op2);
     op->pcAddress = pcAddress;
     op->dest_reg = op0;

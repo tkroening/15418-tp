@@ -311,6 +311,12 @@ bool SM::Execute() {
 
   auto instrPair = decode_execute_queue_.front();
 
+  // check if it is a alu operation,
+  trace_op *instruction = instrPair.first;
+  if (instruction->op == ALU) {
+    assert(instruction->alu_op !=) switch ()
+  }
+
   // DANGER: make sure instruction is not thrown away
   decode_execute_queue_.pop();
   execute_mem_queue_.push(instrPair);
@@ -359,7 +365,7 @@ bool SM::Mem() {
   // stall unless we meet the right delay
   if (instr != NULL && instr->op == MEM_LOAD) {
     memTickDelayCounter++;
-    if (memTickDelayCounter < 100) {
+    if (memTickDelayCounter < 1) {
       std::cout << "stalling memory" << std::endl;
       return true;
     } else {

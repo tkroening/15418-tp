@@ -70,6 +70,9 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
   // QUESTION: when we read all ops do we
 
   // initialize insturction queue of each warp
+
+  // initialize stalling counter
+  memTickDelayCounter = 0;
 }
 
 /******************************************************************************
@@ -194,9 +197,9 @@ bool SM::Fetch() {
       then the pipeline is stalled and we do not make progress.
   */
 
-  if (!fetch_decode_queue_.empty()) {
-    return progress;
-  }
+  //   if (!fetch_decode_queue_.empty()) {
+  //     return progress;
+  //   }
 
   std::pair<trace_op *, uint64_t> instrPair = scheduler();
 
@@ -332,7 +335,6 @@ bool SM::Mem() {
      again. Later, we'll want to introduce delays, or integrate with various
      "memory" components.
   */
-
   bool progress = false;
 
   if (!mem_wb_queue_.empty()) {
@@ -352,6 +354,18 @@ bool SM::Mem() {
   }
 
   auto instrPair = execute_mem_queue_.front();
+  auto [instr, warp_id] = instrPair;
+
+  // stall unless we meet the right delay
+  if (instr != NULL && instr->op == MEM_LOAD) {
+    memTickDelayCounter++;
+    if (memTickDelayCounter < 100) {
+      std::cout << "stalling memory" << std::endl;
+      return true;
+    } else {
+      memTickDelayCounter = 0;
+    }
+  }
 
   // DANGER: make sure instruction is not thrown away
   execute_mem_queue_.pop();
@@ -405,8 +419,8 @@ bool SM::WriteBack() {
       TODO: What about the destination register.
   */
   int dest = instr->dest_reg;
-
-  warps_[warp_id].rf_[dest].ready = true;
+  if (dest != -1)
+    warps_[warp_id].rf_[dest].ready = true;
 
   // If we got here, then we made progress
 

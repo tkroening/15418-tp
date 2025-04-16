@@ -15,7 +15,7 @@ extern "C" {
 #define REGISTER_COUNT 18
 
 // TODO: This is a placeholder value for MAXWARPS. Replace this!
-#define MAXWARPS 4
+#define MAXWARPS 1
 
 typedef struct {
   int regNum; /** @brief The register's architectural number. */
@@ -133,4 +133,10 @@ private:
      produced by memory and consumed by wb */
   std::queue<std::pair<trace_op *, uint64_t>>
       mem_wb_queue_; // should always have length 0 or 1;
+
+  /** Memory ticks stalling*/
+  int memTickDelayCounter;
+
+  /** @brief Memory delay Buffer */
+  std::queue<std::pair<trace_op *, uint64_t>> memDelayBuffers;
 };

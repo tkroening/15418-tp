@@ -1,35 +1,42 @@
-_param_0:256
-_param_1:2
-_param_2:0
-_param_3:2048
-_param_4:4096
+// int N = 64
+int _param_0 32
 
+// float alpha = 0.5
+float _param_1 0.5
 
-ld.param.u64    %rd6, [_param_0];
-ld.param.u64    %rd2, [_param_1];
-ld.param.u64    %rd3, [_param_2];
-ld.param.u64    %rd4, [_param_3];
-ld.param.u64    %rd5, [_param_4];
-mov.u32         %r1, %ctaid.x;
-mov.u32         %r2, %ntid.x;
-mov.u32         %r3, %tid.x;
-mad.lo.s32      %r4, %r1, %r2, %r3;
-cvt.u64.u32     %rd1, %r4;
-setp.ge.s64     %p1, %rd1, %rd6;
+// float *x Array
+float* x _param_2 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32
+
+// float *y Array
+float* y _param_3 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96
+
+// float* Result Array
+float* result _param_4 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+---
+
+ld.param.u32    %r2, [saxpy_kernel(int, float, float*, float*, float*)_param_0];
+ld.param.f32    %f1, [saxpy_kernel(int, float, float*, float*, float*)_param_1];
+ld.param.u64    %rd1, [saxpy_kernel(int, float, float*, float*, float*)_param_2];
+ld.param.u64    %rd2, [saxpy_kernel(int, float, float*, float*, float*)_param_3];
+ld.param.u64    %rd3, [saxpy_kernel(int, float, float*, float*, float*)_param_4];
+mov.u32         %r3, %ctaid.x;
+mov.u32         %r4, %ntid.x;
+mov.u32         %r5, %tid.x;
+mad.lo.s32      %r1, %r3, %r4, %r5;
+setp.ge.s32     %p1, %r1, %r2;
 @%p1 bra        $L__BB0_2;
 
-cvta.to.global.u64      %rd7, %rd3;
-shl.b64         %rd8, %rd1, 3;
-add.s64         %rd9, %rd7, %rd8;
-ld.global.u64   %rd10, [%rd9];
-mul.lo.s64      %rd11, %rd10, %rd2;
-cvta.to.global.u64      %rd12, %rd4;
-add.s64         %rd13, %rd12, %rd8;
-ld.global.u64   %rd14, [%rd13];
-add.s64         %rd15, %rd11, %rd14;
-cvta.to.global.u64      %rd16, %rd5;
-add.s64         %rd17, %rd16, %rd8;
-st.global.u64   [%rd17], %rd15;
+cvta.to.global.u64      %rd4, %rd1;
+mul.wide.s32    %rd5, %r1, 4;
+add.s64         %rd6, %rd4, %rd5;
+ld.global.f32   %f2, [%rd6];
+cvta.to.global.u64      %rd7, %rd2;
+add.s64         %rd8, %rd7, %rd5;
+ld.global.f32   %f3, [%rd8];
+fma.rn.f32      %f4, %f2, %f1, %f3;
+cvta.to.global.u64      %rd9, %rd3;
+add.s64         %rd10, %rd9, %rd5;
+st.global.f32   [%rd10], %f4;
 
 $L__BB0_2:
-ret;
+        ret;

@@ -12,3 +12,10 @@ coherence/libcoherence.so
 interconnect/libinterconnect.so
 memory/libmemory.so
 simpleCache/libsimpleCache.so
+
+gpu/libgpu.so
+
+__pycache__
+.cache
+.vscode
+compile_commands.json

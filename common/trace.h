@@ -1,38 +1,91 @@
+/*
+    Trace: Public Interface to Trace File Reader
+
+    Author: Theo Kroening <tkroenin@andrew.cmu.edu>
+    Based on a design by bpr
+*/
+
 #ifndef TRACE_H
 #define TRACE_H
 
-#include <stdint.h>
-
 #include "common.h"
 
-//
-// TRACE H - Public interface to trace file reader
-//
+typedef union param_t_ {
+    int param_int;
+    float param_float;
+    void *param_pointer;
+} param_t;
 
 enum op_type
 {
-    NONE,
-    MEM_LOAD,
-    MEM_STORE,
-    BRANCH,
-    ALU,
-    ALU_LONG,
-    END
+    LABEL,
+    LDPARAM,
+    MOV,
+    MUL,
+    SETP,
+    BRA,
+    CVTA,
+    ADD,
+    LD,
+    ST,
+    RET
+};
+
+enum op_width 
+{
+    OP_WIDTH_NONE, // Undefined
+    U32,
+    F32,
+    U64,
+    S32,
+    S64,
+};
+
+enum op_space
+{
+    SPACE_NONE, // Undefined
+    SPACE_GLOBAL,
+    SPACE_SHARED
+};
+
+enum op_variant
+{
+    OP_VARIANT_NONE, // Undefined - does not apply
+    MUL_WIDE,
+    SETP_GE
 };
 
 typedef int proc_id;
 
-typedef struct _trace_op {
-    enum op_type op;
-    int dest_reg;
-    int src_reg[2];
-    uint64_t pcAddress;
+enum operand_kind
+{
+    REGISTER,
+    IMMEDIATE_INT,
+    IMMEDIATE_FLOAT
+};
+
+typedef struct _operand {
+    operand_kind op_kind;
     union {
-        uint64_t memAddress;
-        uint64_t nextPCAddress;
+        char *register_name;
+        long immediate_int;
+        double immediate_float;
     };
-    int size;
+} operand_t;
+
+typedef struct _trace_op {
+    op_type op;
+    op_space space;
+    op_variant variant;
+    op_width width;
+
+    char *dest_reg;
+    operand_t *sources;
+
+    // Optional guard register - e.g. @%p1 bra $L__BB0_2
+    char *guard_reg;
 } trace_op;
+
 
 typedef struct _trace_sim_args {
     int arg_count;

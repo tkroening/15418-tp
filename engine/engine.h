@@ -1,6 +1,7 @@
 #ifndef ENGINE_H
 #define ENGINE_H
 
+#include <cstdint>
 #define SIM_NAME_LIMIT 256
 
 // Line buffer size for REPL command line.

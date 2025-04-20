@@ -23,6 +23,7 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
       // Initialize the register file to have all registers be ready.
       for (int reg_idx = 0; reg_idx < tr->num_registers; reg_idx++) {
         std::string register_name = tr->register_names[reg_idx];
+        std::cout << "Register name: " << register_name << std::endl;
         currWarp->rf_[register_name] = Register();
         currWarp->rf_[register_name].register_name_ = register_name;
         currWarp->rf_[register_name].ready_ = true;

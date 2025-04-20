@@ -101,6 +101,7 @@ void TraceReader::ReadParamLine(std::string line) {
             }
             case TR_PRIMITIVE_FLOAT : {
                 result_ptr = buildParamVector<float>(param_values);
+                break;
             }
         }
 
@@ -108,6 +109,9 @@ void TraceReader::ReadParamLine(std::string line) {
     } else {
         throw std::runtime_error("Unsupported parameter format: " + line);
     }
+
+    std::cout << "Inserting param name: " << param_name << std::endl;
+    register_names_.insert(param_name);
 }
 
 op_space parseOpSpace(std::string op_space_str) {
@@ -135,11 +139,14 @@ op_width parseOpWidth(std::string op_width_str) {
 }
 
 char *make_char_array(std::string s) {
-    char *new_arr = (char *) malloc(sizeof(char) * s.size());
+    char *new_arr = (char *) malloc(sizeof(char) * (s.size() + 1));
 
     for (int char_idx = 0; char_idx < s.size(); char_idx++) {
         new_arr[char_idx] = s[char_idx];
     }
+
+    // NUL Terminator
+    new_arr[s.size()] = 0;
 
     return new_arr;
 }
@@ -268,6 +275,7 @@ operand_t parseOperand(std::set<std::string> &register_names, std::string operan
     }
 
     // Log register name
+    std::cout << "Logging register name " << operand_str << std::endl;
     register_names.insert(operand_str);
 
     return {
@@ -282,7 +290,7 @@ operand_t parseOperand(std::set<std::string> &register_names, std::string operan
 
     operator.mod1.mod2 <...operands>
 */
-void parseInstruction(std::set<std::string> register_names, trace_op *new_trace_op, std::string line) {
+void parseInstruction(std::set<std::string> &register_names, trace_op *new_trace_op, std::string line) {
     std::cout << std::endl << "parseInstruction(" << line << ")" << std::endl;
     std::string operator_info_string; // operator.mod1.mod2 -> e.g. st.global.f32
     std::vector<std::string> operand_strings;

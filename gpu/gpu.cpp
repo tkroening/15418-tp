@@ -5,21 +5,17 @@
 #include <unistd.h>
 
 extern "C" {
-#include "branch.h"
-#include "cache.h"
-#include "processor.h"
-#include "trace.h"
+  #include "processor.h"
+  #include "trace.h"
 }
 
 #include "sm.h"
 #define NUMBLOCKS 1;
 #define THREADSPERBLOCK 64;
-#define THREADSPERWARP 32;
+#define THREADSPERWARP 32
 #define NUMSM 1;
 
 trace_reader *tr = NULL;
-cache *cs = NULL;
-branch *bs = NULL;
 
 // processor* self = NULL;
 std::vector<SM *> streaming_multiprocessors;
@@ -44,8 +40,6 @@ extern "C" processor *init(processor_sim_args *psa) {
   int totalThreads = (64);
   int totalWarps = totalThreads / THREADSPERWARP;
   tr = psa->tr;
-  cs = psa->cache_sim;
-  bs = psa->branch_sim;
 
   // TODO: Replace with something relevant to SMs. For now, this is a dummy
   ProcessorArgs processor_args;
@@ -95,7 +89,7 @@ extern "C" processor *init(processor_sim_args *psa) {
     // *self, trace_reader *tr, cache *cs, branch *bs, int activeWarps, int
     // smid);
 
-    SM *new_sm = new SM(memOpCallback, processor_args, self, tr, cs, bs,
+    SM *new_sm = new SM(memOpCallback, processor_args, self, tr, 
                         2, // TODO: Why is activeWarps an int? Why is it passed
                            // in the constructor
                         SMID);
@@ -136,8 +130,6 @@ extern "C" int tick(void) {
   trace_op *nextOp = NULL;
 
   // Pass along to the branch predictor and cache simulator that time ticked
-  bs->si.tick();
-  cs->si.tick();
   tickCount++;
 
   std::cout << std::endl;
@@ -178,16 +170,11 @@ extern "C" int finish(int outFd) {
   /*
       TODO: This needs to be updated for streaming multiprocessors
   */
-  int c = cs->si.finish(outFd);
-  int b = bs->si.finish(outFd);
-
   char buf[32];
   size_t charCount = snprintf(buf, 32, "Ticks - %ld\n", tickCount);
 
   (void)!write(outFd, buf, charCount + 1);
 
-  if (b || c)
-    return 1;
   return 0;
 }
 
@@ -195,10 +182,5 @@ extern "C" int destroy(void) {
   /*
       TODO: This needs to be updated for streaming multiprocessors
   */
-  int c = cs->si.destroy();
-  int b = bs->si.destroy();
-
-  if (b || c)
-    return 1;
   return 0;
 }

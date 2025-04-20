@@ -1,4 +1,5 @@
 #include "sm.h"
+#include "trace.h"
 
 #include <iostream>
 #include <stdio.h>
@@ -6,13 +7,13 @@
 
 // Constructor
 SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
-       trace_reader *tr, cache *cs, branch *bs, int activeWarps, int smid)
-    : memOpCallback_(memOpCallback), args_(args), ps_(self), tr_(tr), cs_(cs),
-      bs_(bs), smid_(smid) {
-  instructionCount_ = 0; // question: do I need self????
+       trace_reader *tr, int activeWarps, int smid)
+    : memOpCallback_(memOpCallback), args_(args), ps_(self), tr_(tr), smid_(smid) {
+
+  instructionCount_ = 0;
   // initialize registers and state of each warp
   for (int i = 0; i < MAXWARPS; i++) {
-    warp_t *currWarp = &(warps_[i]); // question: do I need self.warps[i]????
+    warp_t *currWarp = &(warps_[i]);
 
     // only intialize active warps
     if (i < activeWarps) {
@@ -20,8 +21,11 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
       currWarp->warpState = RUNNING;
 
       // Initialize the register file to have all registers be ready.
-      for (int reg = 0; reg < REGISTER_COUNT; reg++) {
-        currWarp->rf_[reg] = {.regNum = reg, .ready = true};
+      for (int reg_idx = 0; reg_idx < tr->num_registers; reg_idx++) {
+        std::string register_name = tr->register_names[reg_idx];
+        currWarp->rf_[register_name] = Register();
+        currWarp->rf_[register_name].register_name_ = register_name;
+        currWarp->rf_[register_name].ready_ = true;
       }
     } else {
       currWarp->warpState = UNINITIALIZED;
@@ -31,8 +35,14 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
   /** @brief moves all ops onto instruction queue of warps */
   trace_op *op;
   while (true) {
-    // TODO: Hardcoded PID 0 because all warps will be getting same instructions
-    // anyway (?)
+    /*
+        TODO: For now, the implementation can only handle one SM because
+        the calls to getNextOp eventually exhaust the internal "iterator".
+
+        The logic that ingests all the trace_op's should therefore probably
+        be moved to the owning "GPU" class rather than having it run for
+        repeatedly for each SM.
+    */
     op = tr_->getNextOp(0);
     // if we reach end of trace file we break out of loop
     if (op == NULL) {
@@ -97,22 +107,34 @@ std::pair<trace_op *, uint64_t> SM::scheduler() {
       // Idk
       assert(warp_id == i);
 
-      // trace_op *warpNextInstr = warps_[i].dq_.front();
+      /*
+          Check that all registers are ready
 
-      int rs1 = warp_next_instr->src_reg[0];
-      int rs2 = warp_next_instr->src_reg[1];
+          TODO: Is WAW a problem?
+      */
+      bool all_sources_ready = true;
 
-      if (rs1 != -1 && warps_[i].rf_[rs1].ready == false) {
-        std::cout << "Register rs1=" << rs1
-                  << " is not ready, so the instruction (" << warp_next_instr
-                  << ")"
-                  << " is stalled" << std::endl;
-        continue;
-      } else if (rs2 != -1 && warps_[i].rf_[rs2].ready == false) {
-        std::cout << "Register rs2=" << rs2
-                  << " is not ready, so the warp is stalled" << std::endl;
-        continue;
-      } else {
+      for (int source_idx = 0; source_idx < warp_next_instr->num_sources; source_idx++) {
+        // Check that the source is a register
+        operand_t source = warp_next_instr->sources[source_idx];
+        if (source.op_kind != REGISTER) {
+          continue;
+        }
+
+        // Check that the register is ready
+        std::string register_name = source.register_name;
+        if (!warps_[i].rf_[register_name].ready_)  {
+          all_sources_ready = false;
+
+          std::cout << "Register "  << register_name
+                    << "is not ready, so the instruction (" << warp_next_instr
+                    << ")"
+                    << "is stalled" << std::endl;
+          break;
+        }
+      }
+
+      if (all_sources_ready) {
         // no register conflicts, can return
         int selectedWarp = i;
 
@@ -189,11 +211,12 @@ bool SM::Fetch() {
   // update register files
 
   // TODO: What was "I" meant to be?
-  int dest = currentInstruction->dest_reg;
 
   // If the register is -1, it means no register is required.
-  if (dest != -1) {
-    scheduledWarp->rf_[dest].ready = false;
+  if (currentInstruction->dest_reg != NULL) {
+    std::string register_name = currentInstruction->dest_reg;
+
+    scheduledWarp->rf_[register_name].ready_ = false;
   }
 
   fetch_decode_queue_.push(instrPair);
@@ -377,10 +400,9 @@ bool SM::WriteBack() {
 
       TODO: What about the destination register.
   */
-  int dest = instr->dest_reg;
-
-  if (dest >= 0) {
-    warps_[warp_id].rf_[dest].ready = true;
+  if (instr->dest_reg != NULL) {
+    std::string register_name = instr->dest_reg;
+    warps_[warp_id].rf_[register_name].ready_ = true;
   }
 
   // If we got here, then we made progress

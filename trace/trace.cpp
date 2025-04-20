@@ -15,6 +15,9 @@ extern "C" {
 
 TraceReader *tracereader;
 
+// Prototype
+extern "C" trace_op *getNextOp(int);
+
 TraceReader::TraceReader(trace_sim_args *tsa) : trace_reader_state_(TR_STATE_READING_PARAMS) {
     std::cout << "Trace Reader constructor" << std::endl;
 }
@@ -236,7 +239,7 @@ void parseOperatorInfo(trace_op *new_trace_op, std::string operator_info_string)
     }
 }
 
-operand_t parseOperand(std::string operand_str) {
+operand_t parseOperand(std::set<std::string> &register_names, std::string operand_str) {
     try {
         long parsed_int = std::stol(operand_str);
 
@@ -260,10 +263,12 @@ operand_t parseOperand(std::string operand_str) {
     } catch (...) {}
 
     // Treat as register name
-
     if (!operand_str.starts_with("%")) {
         std::cout << "WARNING: Interpreted '" << operand_str << "' as register name" << std::endl;
     }
+
+    // Log register name
+    register_names.insert(operand_str);
 
     return {
         .op_kind = REGISTER,
@@ -277,7 +282,7 @@ operand_t parseOperand(std::string operand_str) {
 
     operator.mod1.mod2 <...operands>
 */
-void parseInstruction(trace_op *new_trace_op, std::string line) {
+void parseInstruction(std::set<std::string> register_names, trace_op *new_trace_op, std::string line) {
     std::cout << std::endl << "parseInstruction(" << line << ")" << std::endl;
     std::string operator_info_string; // operator.mod1.mod2 -> e.g. st.global.f32
     std::vector<std::string> operand_strings;
@@ -307,7 +312,7 @@ void parseInstruction(trace_op *new_trace_op, std::string line) {
             assert(operand_strings.size() == 2);
             new_trace_op->dest_reg = make_char_array(operand_strings[0]);
             parsed_operands.push_back(
-                parseOperand(operand_strings[1])
+                parseOperand(register_names, operand_strings[1])
             );
 
             break;
@@ -319,11 +324,11 @@ void parseInstruction(trace_op *new_trace_op, std::string line) {
             new_trace_op->dest_reg = make_char_array(operand_strings[0]);
 
             parsed_operands.push_back(
-                parseOperand(operand_strings[1])
+                parseOperand(register_names, operand_strings[1])
             );
 
             parsed_operands.push_back(
-                parseOperand(operand_strings[2])
+                parseOperand(register_names, operand_strings[2])
             );
 
             break;
@@ -356,6 +361,7 @@ void parseInstruction(trace_op *new_trace_op, std::string line) {
         heap_operands[operand_idx] = parsed_operands[operand_idx];
     }
 
+    new_trace_op->num_sources = parsed_operands.size();
     new_trace_op->sources = heap_operands;
 }
 
@@ -368,7 +374,10 @@ void TraceReader::ReadPTXLine(std::string line) {
     new_trace_op->width = OP_WIDTH_NONE;
 
     new_trace_op->dest_reg = NULL; // char*
+    
+    new_trace_op->num_sources = 0;
     new_trace_op->sources = NULL; // operand*
+
     new_trace_op->guard_reg = NULL; // char*
 
     // TODO: Check for label
@@ -395,8 +404,13 @@ void TraceReader::ReadPTXLine(std::string line) {
         return;
     }
 
-    parseInstruction(new_trace_op, line);
+    parseInstruction(register_names_, new_trace_op, line);
     trace_ops_.push_back(new_trace_op);
+
+    // Log information about registers
+    if (new_trace_op->dest_reg != NULL) {
+        register_names_.insert(new_trace_op->dest_reg);
+    }
 }
 
 bool lineEmpty(std::string line) {
@@ -425,6 +439,26 @@ void TraceReader::ReadLine(std::string line) {
             break;
         }
     }
+}
+
+std::pair<int, std::vector<std::string>> TraceReader::GetRegisterInfo() {
+    std::vector<std::string> result;
+    for (auto s : register_names_) {
+        result.push_back(s);
+    }
+
+    return {
+        result.size(),
+        result
+    };
+}
+
+trace_op* TraceReader::GetNextOp() {
+    if (trace_op_ctr_ >= trace_ops_.size()) {
+        return NULL;
+    }
+
+    return trace_ops_[trace_op_ctr_++];
 }
 
 extern "C" trace_reader *init(trace_sim_args *tsa)
@@ -459,8 +493,29 @@ extern "C" trace_reader *init(trace_sim_args *tsa)
         throw std::runtime_error("Couldn't open the specified trace file");
     }
 
+    auto [num_registers, register_names] = tracereader->GetRegisterInfo();
+
+    /*
+        Bind all the relevant fields in the trace reader interface
+    */
+    tr->num_registers = num_registers;
+    tr->register_names = (char **) malloc(sizeof(char*) * num_registers);
+
+    for (int reg_idx = 0; reg_idx < num_registers; reg_idx++) {
+        tr->register_names[reg_idx] = make_char_array(register_names[reg_idx]);
+    }
+
+    tr->getNextOp = getNextOp;
 
     return tr;
+}
+
+extern "C" trace_op *getNextOp(int proc_id) {
+    if (tracereader == NULL) {
+        throw std::runtime_error("getNextOp() called, but tracereader is uninitialized.");
+    }
+
+    return tracereader->GetNextOp();
 }
 
 extern "C" int tick() {

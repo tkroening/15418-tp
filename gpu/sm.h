@@ -2,13 +2,13 @@
 #include <cstdint>
 #include <optional>
 #include <queue>
+#include <string>
 #include <unordered_map>
+#include <variant>
 
 extern "C" {
-#include "branch.h"
-#include "cache.h"
-#include "processor.h"
-#include "trace.h"
+  #include "processor.h"
+  #include "trace.h"
 }
 
 // TODO: This is a placeholder value for REGISTER_COUNT. Replace this!
@@ -17,11 +17,23 @@ extern "C" {
 // TODO: This is a placeholder value for MAXWARPS. Replace this!
 #define MAXWARPS 2
 
-typedef struct {
-  int regNum; /** @brief The register's architectural number. */
-  bool ready; /** @brief Whether the register's value is ready or being
-                 calculated. */
-} Register_t;
+// TODO: Could perhaps be made into a configurable value in the future
+#define THREADSPERWARP 32
+
+using Value = std::variant<int32_t, int64_t, uint32_t, uint64_t, float>;
+
+class Register {
+  public:
+    std::string register_name_; /** @brief Name as it appears in the trace file */
+    bool ready_; /** @brief Whether the register's value is ready or being 
+                    calculated. */
+
+    /*
+        All registers are considered to be "wide" - they hold one value for
+        every thread in a warp.
+    */
+    std::array<Value, THREADSPERWARP> register_values_;
+};
 
 /** @brief The arguments that need to be given to the Processor. */
 struct ProcessorArgs {
@@ -45,26 +57,22 @@ typedef enum state {
 
 typedef struct warp {
   state_t warpState;
-  /** @brief The register file, need 1 for each warp */
-  std::array<Register_t, REGISTER_COUNT> rf_;
+  
+  // Map register names to register information
+  std::unordered_map<std::string, Register> rf_;
 
   /** @brief The instruction queue, storing trace ops and their ids.
       need 1 for each warp*/
   std::deque<std::pair<trace_op *, uint64_t>>
       dq_; // need double queue as you need to peak at instructions in the
            // front
-
-  /** @brief Sorted queue of finished instructions. */
-
-  // TODO: Replaced vector type - idk what was going here before
-  std::vector<int> finished_instructions_;
 } warp_t;
 
 class SM {
 public:
   // Constructor
   SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
-     trace_reader *tr, cache *cs, branch *bs, int activeWarps, int smid);
+     trace_reader *tr, int activeWarps, int smid);
 
   ProcessorArgs args_;
 
@@ -73,12 +81,6 @@ public:
 
   /** @brief The trace reader pointer. */
   trace_reader *tr_;
-
-  /** @brief The cache simulator pointer. */
-  cache *cs_;
-
-  /** @brief The branch predictor simulator pointer, not current focus*/
-  branch *bs_;
 
   int instructionCount_;
 

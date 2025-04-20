@@ -1,3 +1,4 @@
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -25,7 +26,9 @@ class TraceReader {
         // Methods
         void ReadLine(std::string line);
 
-        trace_op *getNextOp();
+        trace_op *GetNextOp();
+
+        std::pair<int, std::vector<std::string>> GetRegisterInfo();
 
         /*
             Fields
@@ -38,4 +41,8 @@ class TraceReader {
     private:
         void ReadParamLine(std::string line);
         void ReadPTXLine(std::string line);
+
+        std::set<std::string> register_names_;
+
+        size_t trace_op_ctr_ {0};
 };

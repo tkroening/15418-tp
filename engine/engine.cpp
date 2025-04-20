@@ -182,8 +182,8 @@ int main(int argc, char** argv)
     if (arg == NULL) {}
 
     processor_sim_args psa;
-    // psa.arg_count = argCount;
-    // psa.arg_list = arg;
+    psa.arg_count = argCount;
+    psa.arg_list = arg;
     psa.tr = tr;
     // psa.cache_sim = cache_sim;
     // psa.branch_sim = branch_sim;

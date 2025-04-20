@@ -80,6 +80,8 @@ typedef struct _trace_op {
     op_width width;
 
     char *dest_reg;
+
+    int num_sources;
     operand_t *sources;
 
     // Optional guard register - e.g. @%p1 bra $L__BB0_2
@@ -92,9 +94,13 @@ typedef struct _trace_sim_args {
     char** arg_list;
 } trace_sim_args;
 
+// C-style interface for the stuff exposed by the trace reader
 typedef struct _trace_reader {
     sim_interface si;
     trace_op* (*getNextOp)(int);
+
+    int num_registers;
+    char **register_names;
 } trace_reader;
 
 #endif

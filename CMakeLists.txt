@@ -19,6 +19,7 @@ add_subdirectory(engine)
 # add_subdirectory(interconnect)
 # add_subdirectory(simpleCache)
 # add_subdirectory(memory)
-# add_subdirectory(gpu)
+
+add_subdirectory(gpu)
 
 project(cadss C)

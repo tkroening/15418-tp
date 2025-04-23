@@ -10,10 +10,20 @@
 
 #include "common.h"
 
-typedef union param_t_ {
-    int param_int;
-    float param_float;
-    void *param_pointer;
+enum TraceReaderPrimitiveType
+{
+    TR_PRIMITIVE_INT,
+    TR_PRIMITIVE_FLOAT
+};
+
+typedef struct param_t_ {
+    TraceReaderPrimitiveType primitive_type;
+    bool is_pointer;
+    union {
+        int param_int;
+        float param_float;
+        void *param_pointer;
+    };
 } param_t;
 
 enum op_type
@@ -98,6 +108,7 @@ typedef struct _trace_sim_args {
 typedef struct _trace_reader {
     sim_interface si;
     trace_op* (*getNextOp)(int);
+    param_t* (*getParamValue)(char*);
 
     int num_registers;
     char **register_names;

@@ -12,12 +12,6 @@ enum TraceReaderState
     TR_STATE_READING_PTX
 };
 
-enum TraceReaderPrimitiveType
-{
-    TR_PRIMITIVE_INT,
-    TR_PRIMITIVE_FLOAT
-};
-
 class TraceReader {
     public:
         // Constructor

@@ -89,8 +89,11 @@ extern "C" processor *init(processor_sim_args *psa) {
     // *self, trace_reader *tr, cache *cs, branch *bs, int activeWarps, int
     // smid);
 
+    /*
+      TODO: Hardcoded `activeWarps` to 1 for now.
+    */
     SM *new_sm = new SM(memOpCallback, processor_args, self, tr, 
-                        2, // TODO: Why is activeWarps an int? Why is it passed
+                        1, // TODO: Why is activeWarps an int? Why is it passed
                            // in the constructor
                         SMID);
 

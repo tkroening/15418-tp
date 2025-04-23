@@ -15,8 +15,9 @@ extern "C" {
 
 TraceReader *tracereader;
 
-// Prototype
+// Prototypes
 extern "C" trace_op *getNextOp(int);
+extern "C" param_t *getParamValue(char *param_name);
 
 TraceReader::TraceReader(trace_sim_args *tsa) : trace_reader_state_(TR_STATE_READING_PARAMS) {
     std::cout << "Trace Reader constructor" << std::endl;
@@ -27,12 +28,20 @@ param_t getPrimitiveParamFromString(TraceReaderPrimitiveType primitive_type, std
     case TR_PRIMITIVE_INT: {
         int val = std::stoi(param_str);
         
-        return { .param_int = val };
+        return {
+            .primitive_type = TR_PRIMITIVE_INT,
+            .is_pointer = false,
+            .param_int = val 
+        };
     }
     case TR_PRIMITIVE_FLOAT : {
         float val = std::stof(param_str);
 
-        return { .param_float = val };
+        return { 
+            .primitive_type = TR_PRIMITIVE_FLOAT,
+            .is_pointer = false,
+            .param_float = val
+        };
     }
   }
 }
@@ -105,7 +114,11 @@ void TraceReader::ReadParamLine(std::string line) {
             }
         }
 
-        param_map_[param_name] = { .param_pointer = result_ptr };
+        param_map_[param_name] = {
+            .primitive_type = primitive_type,
+            .is_pointer = true,
+            .param_pointer = result_ptr
+        };
     } else {
         throw std::runtime_error("Unsupported parameter format: " + line);
     }
@@ -514,6 +527,7 @@ extern "C" trace_reader *init(trace_sim_args *tsa)
     }
 
     tr->getNextOp = getNextOp;
+    tr->getParamValue = getParamValue;
 
     return tr;
 }
@@ -524,6 +538,25 @@ extern "C" trace_op *getNextOp(int proc_id) {
     }
 
     return tracereader->GetNextOp();
+}
+
+extern "C" param_t *getParamValue(char *param_name) {
+    if (tracereader == NULL) {
+        throw std::runtime_error("getParamValue() called, but tracereader was uninitialized!");
+    }
+
+    if (param_name == NULL) {
+        throw std::runtime_error("getParamValue() called, but param_name was null");
+    }
+
+    if (tracereader->param_map_.find(param_name) == tracereader->param_map_.end()) {
+        return NULL;
+    }
+
+    param_t *res = new param_t;
+    *res = tracereader->param_map_[param_name];
+
+    return res;
 }
 
 extern "C" int tick() {

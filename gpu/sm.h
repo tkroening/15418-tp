@@ -20,7 +20,7 @@ extern "C" {
 // TODO: Could perhaps be made into a configurable value in the future
 #define THREADSPERWARP 32
 
-using Value = std::variant<int32_t, int64_t, uint32_t, uint64_t, float>;
+using Value = std::variant<int32_t, int64_t, uint32_t, uint64_t, float, double>;
 
 class Register {
   public:
@@ -132,4 +132,13 @@ private:
      produced by memory and consumed by wb */
   std::queue<std::pair<trace_op *, uint64_t>>
       mem_wb_queue_; // should always have length 0 or 1;
+
+  /*
+      "Computation" Methods
+  */
+  
+  // "Wide" - Returns value for every thread in the warp
+  std::vector<Value> GetValueFromSource(operand_t *src, uint64_t warp_id);
+
+  void DoComputation(std::pair<trace_op *, uint64_t> instrPair);
 };

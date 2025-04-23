@@ -1,9 +1,13 @@
 #include "sm.h"
 #include "trace.h"
 
+#include <cstdint>
+#include <functional>
 #include <iostream>
+#include <stdexcept>
 #include <stdio.h>
 #include <sys/types.h>
+#include <variant>
 
 // Constructor
 SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
@@ -27,6 +31,66 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
         currWarp->rf_[register_name] = Register();
         currWarp->rf_[register_name].register_name_ = register_name;
         currWarp->rf_[register_name].ready_ = true;
+      }
+
+      /*
+          Initialize parameter registers
+
+          TODO: Presumably this makes more sense to do in the GPU itself
+          rather than individual SMs.
+      */
+      for (int reg_idx = 0; reg_idx < tr->num_registers; reg_idx++) {
+        std::vector<Value> register_values;
+        param_t *param = tr->getParamValue(tr->register_names[reg_idx]);
+        if (param == NULL) {
+          continue;
+        }
+
+        std::cout << "Register: " << tr->register_names[reg_idx] << std::endl;
+
+        if (param->is_pointer) {
+          // TODO: The reinterpret cast seems very dangerous
+          std::cout << "\tExtracted pointer param " << param->param_pointer << std::endl;
+          register_values = std::vector<Value>(THREADSPERWARP, reinterpret_cast<uint64_t>(param->param_pointer));
+        } else {
+          switch (param->primitive_type) {
+            case TR_PRIMITIVE_INT : {
+              std::cout << "\tExtracted param " << param->param_int << std::endl;
+              register_values = std::vector<Value>(THREADSPERWARP, param->param_int);
+              break;
+            }
+            case TR_PRIMITIVE_FLOAT : {
+              std::cout << "\tExtracted param " << param->param_float << std::endl;
+              register_values = std::vector<Value>(THREADSPERWARP, param->param_float);
+              break;
+            }
+          }
+        }
+
+        std::string register_name = tr->register_names[reg_idx];
+        for (int tid = 0; tid < THREADSPERWARP; tid++) {
+          currWarp->rf_[register_name].register_values_[tid] = register_values[tid];
+        }
+
+
+      }
+
+      /*
+          Set up CUDA variables:
+          - CUDA's "threadIdx.x" is PTX "%tid.x".
+          - CUDA's "blockIdx.x" is PTX "%ctaid.x".
+          - CUDA's "blockDim.x" is PTX "%ntid.x".
+
+          Source: https://www.cs.uaf.edu/2011/spring/cs641/lecture/03_03_CUDA_PTX.html
+
+          TODO: Again, this probably ought to be moved somewhere else or
+          assigned more cleverly in the future. The current values are
+          hardcoded!!
+      */
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        currWarp->rf_["\%ctaid.x"].register_values_[tid] = 0;
+        currWarp->rf_["\%ntid.x"].register_values_[tid] = 32;
+        currWarp->rf_["\%tid.x"].register_values_[tid] = tid;
       }
     } else {
       currWarp->warpState = UNINITIALIZED;
@@ -390,6 +454,8 @@ bool SM::WriteBack() {
   // DANGER: make sure instruction is not thrown away
   mem_wb_queue_.pop();
 
+  DoComputation({instr, warp_id});
+
   // TODO: Maybe need to push onto "finished instructions" (?)
 
   /*
@@ -409,4 +475,389 @@ bool SM::WriteBack() {
   // If we got here, then we made progress
 
   return true;
+}
+
+/******************************************************************************
+ Computation
+ ******************************************************************************/
+
+/*
+    Helper for the "wide" variant of instructions. From the PTX ISA docs:
+
+    mul.wide.s32 z,x,y;        // 32*32 bits, creates 64 bit result
+*/
+op_width getDoubleWidth(op_width old_width) {
+  switch (old_width) {
+    case S32 : {
+      return S64;
+    }
+    default : {
+      throw std::runtime_error("getDoubleWidth() unimplemented for this width");
+    }
+  }
+}
+
+/*
+    Helper to convert values
+*/
+Value convertValue(Value oldValue, op_width targetSize) {
+  Value result = std::visit([targetSize](auto &v) -> Value {
+    switch (targetSize) {
+      case U32 : {
+        return static_cast<uint32_t>(v);
+      }
+      case F32 : {
+        return static_cast<float>(v);
+      }
+      case U64 : {
+        return static_cast<uint64_t>(v);
+      }
+      case S32 : {
+        return static_cast<int>(v);
+      }
+      case S64 : {
+        return static_cast<int64_t>(v);
+      }
+      case OP_WIDTH_NONE : {
+        throw std::runtime_error("Unsupported conversion width");
+      }
+    }
+  }, oldValue);
+
+  return result;
+}
+
+template <typename BinOp>
+Value convertAndApplyBinop(trace_op *instr, Value a, Value b, BinOp binop) {
+  return std::visit(
+      [b, instr, binop](auto &v_a) -> Value {
+        return std::visit(
+            [instr, binop, v_a](auto &v_b) -> Value {
+              switch (instr->width) {
+                case S32 : {
+                  return binop(
+                    static_cast<int32_t>(v_a),
+                    static_cast<int32_t>(v_b)
+                  );
+                }
+                case S64 : {
+                  return binop(
+                    static_cast<int64_t>(v_a),
+                    static_cast<int64_t>(v_b)
+                  );
+                }
+                case F32 : {
+                  return binop(
+                    static_cast<float>(v_a),
+                    static_cast<float>(v_b)
+                  );
+                }
+                default : {
+                  throw std::runtime_error("Unsupported binop width");
+                }
+              } 
+            },
+            b);
+      },
+      a);
+}
+
+std::vector<Value> SM::GetValueFromSource(operand_t *src, uint64_t warp_id) {
+  switch (src->op_kind) {
+    case IMMEDIATE_INT : {
+      return std::vector<Value>(THREADSPERWARP, src->immediate_int);
+    }
+    case IMMEDIATE_FLOAT : {
+      return std::vector<Value>(THREADSPERWARP, src->immediate_float);
+    }
+    case REGISTER : {
+      // Try to fetch register
+      assert(src->register_name != NULL);
+      std::string register_name = src->register_name;
+      assert(warps_[warp_id].rf_.find(register_name) != warps_[warp_id].rf_.end());
+
+      std::vector<Value> result;
+      for (auto v : warps_[warp_id].rf_[register_name].register_values_) {
+        result.push_back(v);
+      }
+
+      return result;
+    }
+  }
+}
+
+/*
+    Return the value stored at the address represented by memValue
+*/
+
+template<typename ValueType>
+Value loadValueFromPointer(trace_op *instr, ValueType ptr) {
+  switch (instr->width) {
+    case F32 : {
+      return *reinterpret_cast<float *>(ptr);
+    }
+    default : {
+      throw std::runtime_error("loadValueFromPointer(): Unsupported pointer type");
+    }
+  }
+}
+
+Value loadValue(trace_op *instr, Value memValue) {
+  if (std::holds_alternative<int64_t>(memValue)) {
+    auto addr = std::get<int64_t>(memValue);
+    return loadValueFromPointer(instr, addr);
+  } else if (std::holds_alternative<uint64_t>(memValue)) {
+    auto addr = std::get<uint64_t>(memValue);
+    return loadValueFromPointer(instr, addr);
+  } else {
+    throw std::runtime_error("loadValue() called with something that can't be made into a pointer.");
+  }
+}
+
+template<typename PtrType, typename ValueType>
+void storeValueIntoPointer(trace_op *instr, PtrType ptr, ValueType src) {
+  switch (instr->width) {
+    case F32 : {
+      float *new_ptr = reinterpret_cast<float *>(ptr);
+      *new_ptr = src;
+      break;
+    }
+    default : {
+      throw std::runtime_error("storeValueIntoPointer(): Unsupported width");
+    }
+  }
+}
+
+template<typename ValueType>
+void storeValueHelper(trace_op *instr, Value destValue, ValueType srcValue) {
+  if (std::holds_alternative<int64_t>(destValue)) {
+    auto addr = std::get<int64_t>(destValue);
+    storeValueIntoPointer(instr, addr, srcValue);
+  } else if (std::holds_alternative<uint64_t>(destValue)) {
+    auto addr = std::get<uint64_t>(destValue);
+    storeValueIntoPointer(instr, addr, srcValue);
+  } else {
+    throw std::runtime_error("storeValueHelper() called with something that can't be made into a pointer.");
+  }
+}
+
+void storeValue(trace_op* instr, Value destValue, Value srcValue) {
+  std::visit([instr, destValue](auto &v) -> void {
+    switch (instr->width) {
+      case F32 : {
+        return storeValueHelper(
+          instr,
+          destValue,
+          static_cast<float>(v)
+        );
+      }
+      default : {
+        throw std::runtime_error("Unsupported src type for storeValue");
+      }
+    }
+  }, srcValue);
+}
+
+void SM::DoComputation(std::pair<trace_op *, uint64_t> instrPair) {
+  auto [instr, warp_id] = instrPair;
+
+  // Want to fetch all of the "source" values
+  std::vector<std::vector<Value>> source_values;
+  for (int source_idx = 0; source_idx < instr->num_sources; source_idx++) {
+    auto source = instr->sources[source_idx];
+    source_values.push_back(GetValueFromSource(&source, warp_id));
+  }
+
+  switch (instr->op) {
+    /*
+        Note here that we are treating a lot of instructions (LDPARAM, MOV, CVTA)
+        as being exactly the same. We may need to revisit this assumption at
+        some point.
+    */
+    case LDPARAM :
+    case MOV :
+    case CVTA : {
+      assert(source_values.size() == 1);
+      std::vector<Value> result(THREADSPERWARP);
+
+      /*
+        Just cast everything in the source to the desired width
+      */
+      assert(instr->width != OP_WIDTH_NONE);
+
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        result[tid] = convertValue(source_values[0][tid], instr->width);
+      }
+
+      // Write back result
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        warps_[warp_id].rf_[instr->dest_reg].register_values_[tid] = result[tid];
+      }
+
+      break;
+    }
+    case MUL : {
+      assert(source_values.size() == 2);
+      std::vector<Value> result(THREADSPERWARP);
+
+      /*
+        Cast the two operands to the desired width
+      */
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        Value a = source_values[0][tid];
+        Value b = source_values[1][tid];
+
+        switch (instr->variant) {
+          case OP_VARIANT_NONE : {
+            result[tid] = convertAndApplyBinop(
+                instr, a, b, [](auto v_a, auto v_b) { return v_a * v_b; });
+
+            break;
+          }
+          case MUL_WIDE : {
+            trace_op temp_trace_op;
+            temp_trace_op = *instr;
+            temp_trace_op.width = getDoubleWidth(instr->width);
+
+            result[tid] = convertAndApplyBinop(
+                &temp_trace_op, a, b, [](auto v_a, auto v_b) { return v_a * v_b; });
+
+            break;
+          }
+          default : {
+            throw std::runtime_error("Unsupported variant for MUL");
+          }
+        }
+
+      }
+
+      // Write back
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        warps_[warp_id].rf_[instr->dest_reg].register_values_[tid] = result[tid];
+      }
+
+      break;
+    }
+    case ADD : {
+      assert(source_values.size() == 2);
+      std::vector<Value> result(THREADSPERWARP);
+
+      /*
+          Cast and do the add
+      */
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        Value a = source_values[0][tid];
+        Value b = source_values[1][tid];
+
+        result[tid] = convertAndApplyBinop(instr, a, b, 
+          [](auto v_a, auto v_b) {
+            return v_a + v_b;
+          }
+        );
+      }
+
+      // Write back
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        warps_[warp_id].rf_[instr->dest_reg].register_values_[tid] = result[tid];
+      }
+
+      break;
+    }
+    case SETP : {
+      // TODO: We might need to revisit this assumption about the number of sources
+      assert(source_values.size() == 2);
+      
+      // Need to set predicate registers
+      std::vector<Value> result(THREADSPERWARP);
+
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        Value a = source_values[0][tid];
+        Value b = source_values[1][tid];
+
+        switch (instr->variant) {
+          case SETP_GE : {
+
+            result[tid] = convertAndApplyBinop(instr, a, b,
+                [](auto v_a, auto v_b) {
+                  return v_a >= v_b;
+                }
+            );
+
+            break;
+          }
+          default : {
+            throw std::runtime_error("Unsupported SETP variant");
+          }
+        }
+      }
+
+      // Write back
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        warps_[warp_id].rf_[instr->dest_reg].register_values_[tid] = result[tid];
+      }
+
+      break;
+    }
+    case BRA : {
+      /*
+          TODO: We don't implement control flow for now. For the SAXPY demo,
+          we just want to see that computation works properly for one warp with
+          no branches.
+      */
+      break;
+    }
+    case LD : {
+      assert(source_values.size() == 1);
+      std::vector<Value> result(THREADSPERWARP);
+
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        Value memValue = source_values[0][tid];
+        result[tid] = loadValue(instr, memValue);
+      }
+
+      // Write back
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        warps_[warp_id].rf_[instr->dest_reg].register_values_[tid] = result[tid];
+      }
+
+      break;
+    }
+    case ST : {
+      assert(source_values.size() == 1);
+
+      // Note: this instruction has no "result"
+
+      /*
+          We need to know the destinations
+      */
+
+      // Hack: implement with a fake operand
+      operand_t temp_operand;
+      temp_operand.op_kind = REGISTER;
+      temp_operand.register_name = instr->dest_reg;
+
+      std::vector<Value> destination_addresses = GetValueFromSource(&temp_operand, warp_id);
+
+      // Do the actual store
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        Value destValue = destination_addresses[tid];
+        Value srcValue = source_values[0][tid];
+        storeValue(instr, destValue, srcValue);
+      }
+
+      // No WB, since this instruction doesn't have a result
+      break;
+    }
+    case LABEL : {
+      // Do nothing
+      break;
+    }
+    case RET : {
+      // Do nothing
+      break;
+    }
+    default : {
+      throw std::runtime_error("This instruction has not yet been implemented.");
+    }
+  }
 }

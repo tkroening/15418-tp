@@ -19,14 +19,14 @@ setp.ge.s32 %p1 %r1 %r2
 cvta.global.u64 %rd4 %rd1
 mul.wide.s32 %rd5 %r1 4
 add.s64 %rd6 %rd4 %rd5
-st.global.f32 %f2 [%rd6]
+ld.global.f32 %f2 %rd6
 cvta.global.u64 %rd7 %rd2
 add.s64 %rd8 %rd7 %rd5
-st.global.f32 %f3 [%rd8]
+ld.global.f32 %f3 %rd8
 mul.f32 %f4 %f2 %f1
 add.f32 %f4 %f4 %f3
 cvta.global.u64 %rd9 %rd3
 add.s64 %rd10 %rd9 %rd5
-ld.global.f32 [%rd10] %f4
+st.global.f32 %rd10 %f4
 $L__BB0_2:
 ret

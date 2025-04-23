@@ -200,12 +200,15 @@ class Add(Translation):
 
 class Load(Translation):
     def match(self, line: str, currentState: TranspilerState) -> bool:
-        return line.startswith("st.")
+        return line.startswith("ld.")
 
     def transform(self, currentState: TranspilerState, line: str) -> tuple[TranspilerState, str]:
         operator, dest, src = line.split()
         dest = dest[:-1]
         src = src[:-1]
+
+        if src.startswith("["): src = src[1:]
+        if src.endswith("]"): src = src[:-1]
 
         _, space, size = operator.split(".")
 
@@ -213,12 +216,15 @@ class Load(Translation):
 
 class Store(Translation):
     def match(self, line: str, currentState: TranspilerState) -> bool:
-        return line.startswith("ld.")
+        return line.startswith("st.")
 
     def transform(self, currentState: TranspilerState, line: str) -> tuple[TranspilerState, str]:
         operator, dest, src = line.split()
         dest = dest[:-1]
         src = src[:-1]
+
+        if dest.startswith("["): dest = dest[1:]
+        if dest.endswith("]"): dest = dest[:-1]
 
         _, space, size = operator.split(".")
 

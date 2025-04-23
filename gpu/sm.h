@@ -15,13 +15,19 @@ extern "C" {
 #define REGISTER_COUNT 18
 
 // TODO: This is a placeholder value for MAXWARPS. Replace this!
-#define MAXWARPS 1
+#define MAXWARPS 64
 
 typedef struct {
   int regNum; /** @brief The register's architectural number. */
   bool ready; /** @brief Whether the register's value is ready or being
                  calculated. */
 } Register_t;
+
+typedef struct {
+  trace_op *instr;
+  uint64_t warpID;
+  int64_t tag;
+} mem_waiting_t; // an entry of data waiting for memory
 
 /** @brief The arguments that need to be given to the Processor. */
 struct ProcessorArgs {
@@ -89,7 +95,9 @@ public:
   bool Decode();
   bool Execute();
   bool Mem();
+  bool Mem_falling();
   bool WriteBack();
+  bool handleMemOpCallback(int64_t tag);
   std::pair<trace_op *, uint64_t> scheduler();
 
 private:
@@ -129,10 +137,22 @@ private:
   std::queue<std::pair<trace_op *, uint64_t>>
       execute_mem_queue_; // should always have length 0 or 1;
 
-  /** @brief The queue of instructions going into write back stage
-     produced by memory and consumed by wb */
+  /** @brief The queue of instructions going into memory_falling stage
+    produced by memory_rising and consumed by memory_falling*/
   std::queue<std::pair<trace_op *, uint64_t>>
-      mem_wb_queue_; // should always have length 0 or 1;
+      mem1_mem2_queue_; // should always have length 0 or 1;
+
+  /** @brief The queue of instructions going into write back stage
+     produced by memory_falling and consumed by wb */
+  std::queue<std::pair<trace_op *, uint64_t>>
+      mem2_wb_queue_; // should always have length 0 or 1;
+
+  /** @brief the queue of instructions that has gotten their data from memory*/
+  std::queue<std::pair<trace_op *, uint64_t>>
+      mem_ready_queue_; // should always have length 0 or 1;
+
+  /** @brief a vector of instructions currently waiting for data from memory*/
+  std::vector<mem_waiting_t> mem_waiting_vector;
 
   /** Memory ticks stalling*/
   int memTickDelayCounter;

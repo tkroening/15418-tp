@@ -157,15 +157,16 @@ trace_op *getNextOp(int processorNum) {
     op->op = MEM_LOAD;
     (void)!fscanf(tf, "%lx,%d", &memAddress, &opSize);
     if (1 == fscanf(tf, " %d\n", &op0)) {
-      op->src_reg[0] = op0;
+      printf("wjfwef %d\n", op0);
     } else {
       (void)!fscanf(tf, "\n");
-      op->src_reg[0] = -1;
+      op->dest_reg = -1;
     }
     op->memAddress = memAddress;
     op->size = opSize;
     op->src_reg[1] = -1;
-    op->dest_reg = -1;
+    op->src_reg[0] = -1;
+    op->dest_reg = opSize;
     break;
   case 'S':
     op->op = MEM_STORE;
@@ -188,6 +189,9 @@ trace_op *getNextOp(int processorNum) {
     op->dest_reg = op0;
     op->src_reg[0] = op1;
     op->src_reg[1] = op2;
+    break;
+  case 'N':
+    op->op = NOP;
     break;
   // case 'P':
   //   op->op = PARAMS;

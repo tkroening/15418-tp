@@ -12,7 +12,7 @@ extern "C" {
 }
 
 #include "sm.h"
-#define TOTALTHREADS 32
+#define TOTALTHREADS 32 * 64;
 #define THREADSPERWARP 32;
 #define NUMSM 1;
 
@@ -32,6 +32,15 @@ int64_t *memOpTag = NULL;
 
 // Need this prototype so the reference is defined in `init`:
 void memOpCallback(int, int64_t);
+
+void memOpCallback(int warp_id, int64_t tag) {
+  auto sm = streaming_multiprocessors[0];
+
+  // Notify the processor
+  printf("got data from warp %d\n", warp_id);
+  bool processorHadPendingRequest = sm->handleMemOpCallback(tag);
+  assert(processorHadPendingRequest);
+}
 
 //
 // init
@@ -95,8 +104,8 @@ extern "C" processor *init(processor_sim_args *psa) {
     // smid);
 
     SM *new_sm = new SM(memOpCallback, processor_args, self, tr, cs, bs,
-                        1, // TODO: Why is activeWarps an int? Why is
-                           // it passed in the constructor
+                        totalWarps, // TODO: Why is activeWarps an int? Why is
+                                    // it passed in the constructor
                         SMID);
 
     streaming_multiprocessors.push_back(new_sm);
@@ -109,22 +118,22 @@ const int64_t STALL_TIME = 100000;
 int64_t tickCount = 0;
 int64_t stallCount = -1;
 
-int64_t makeTag(int procNum, int64_t baseTag) {
-  return ((int64_t)procNum) | (baseTag << 8);
-}
+// int64_t makeTag(int procNum, int64_t baseTag) {
+//   return ((int64_t)procNum) | (baseTag << 8);
+// }
 
-void memOpCallback(int procNum, int64_t tag) {
-  int64_t baseTag = (tag >> 8);
+// void memOpCallback(int procNum, int64_t tag) {
+//   int64_t baseTag = (tag >> 8);
 
-  // Is the completed memop one that is pending?
-  if (baseTag == memOpTag[procNum]) {
-    memOpTag[procNum]++;
-    pendingMem[procNum] = 0;
-    stallCount = tickCount + STALL_TIME;
-  } else {
-    printf("memopTag: %ld != tag %ld\n", memOpTag[procNum], tag);
-  }
-}
+//   // Is the completed memop one that is pending?
+//   if (baseTag == memOpTag[procNum]) {
+//     memOpTag[procNum]++;
+//     pendingMem[procNum] = 0;
+//     stallCount = tickCount + STALL_TIME;
+//   } else {
+//     printf("memopTag: %ld != tag %ld\n", memOpTag[procNum], tag);
+//   }
+// }
 
 extern "C" int tick(void) {
   // if room in pipeline, request op from trace
@@ -164,6 +173,7 @@ extern "C" int tick(void) {
     */
 
     progress |= sm->WriteBack();
+    progress |= sm->Mem_falling();
     progress |= sm->Mem();
     progress |= sm->Execute();
     progress |= sm->Decode();

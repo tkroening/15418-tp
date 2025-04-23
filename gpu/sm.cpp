@@ -4,6 +4,10 @@
 #include <stdio.h>
 #include <sys/types.h>
 
+int64_t makeTag(int procNum, int64_t baseTag) {
+  return ((int64_t)procNum) | (baseTag << 8);
+}
+
 // Constructor
 SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
        trace_reader *tr, cache *cs, branch *bs, int activeWarps, int smid)
@@ -93,7 +97,8 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
 // double-checked.
 std::pair<trace_op *, uint64_t> SM::scheduler() {
   for (int i = 0; i < MAXWARPS; i++) {
-    std::cout << "Warp " << i << " state: " << warps_[i].warpState << std::endl;
+    // std::cout << "Warp " << i << " state: " << warps_[i].warpState <<
+    // std::endl;
     if (warps_[i].warpState == FINISHED ||
         warps_[i].warpState == UNINITIALIZED) {
       continue;
@@ -121,7 +126,7 @@ std::pair<trace_op *, uint64_t> SM::scheduler() {
       if (rs1 != -1 && warps_[i].rf_[rs1].ready == false) {
         std::cout << "Register rs1=" << rs1
                   << " is not ready, so the instruction (" << warp_next_instr
-                  << ")"
+                  << ", " << i << ")"
                   << " is stalled" << std::endl;
         continue;
       } else if (rs2 != -1 && warps_[i].rf_[rs2].ready == false) {
@@ -223,6 +228,7 @@ bool SM::Fetch() {
 
   // If the register is -1, it means no register is required.
   if (dest != -1) {
+    printf("register %d is used", dest);
     scheduledWarp->rf_[dest].ready = false;
   }
 
@@ -337,7 +343,7 @@ bool SM::Mem() {
   */
   bool progress = false;
 
-  if (!mem_wb_queue_.empty()) {
+  if (!mem1_mem2_queue_.empty()) {
     /*
         TODO: For now, we return immediately if the next stage of the pipeline
         is stalled. We therefore perform no extra logic, so we might need to
@@ -355,23 +361,71 @@ bool SM::Mem() {
 
   auto instrPair = execute_mem_queue_.front();
   auto [instr, warp_id] = instrPair;
+  execute_mem_queue_.pop();
+
+  if (instr != NULL && instr->op == MEM_LOAD) {
+    int64_t tag = makeTag(warp_id, int32_t(instr->memAddress));
+    mem_waiting_t wait;
+    wait.warpID = warp_id;
+    wait.instr = instr;
+    wait.tag = tag;
+    mem_waiting_vector.push_back(
+        wait); // add this to the instructions awaiting memory
+    cs_->memoryRequest(instr, 0, tag, memOpCallback_);
+    return true;
+  }
 
   // stall unless we meet the right delay
-  if (instr != NULL && instr->op == MEM_LOAD) {
-    memTickDelayCounter++;
-    if (memTickDelayCounter < 100) {
-      std::cout << "stalling memory" << std::endl;
+  // if (instr != NULL && instr->op == MEM_LOAD) {
+  //   memTickDelayCounter++;
+  //   if (memTickDelayCounter < 100) {
+  //     std::cout << "stalling memory" << std::endl;
+  //     return true;
+  //   } else {
+  //     memTickDelayCounter = 0;
+  //   }
+  // }
+
+  // DANGER: make sure instruction is not thrown away
+  // we allow non memory operations through
+  mem1_mem2_queue_.push(instrPair);
+
+  // If we got here, then we made progress
+  return true;
+}
+
+/******************************************************************************
+ Memory Falling
+ ******************************************************************************/
+
+/**
+ * @brief the falling edge of the memory cycle
+ *
+ * @return unsure what the return types are
+ */
+bool SM::Mem_falling() {
+
+  bool progress = false;
+  printf("%d instructions waiting for memory \n", mem_waiting_vector.size());
+  if (mem1_mem2_queue_.empty()) {
+    // if no data is waiting for memory and no data is ready, then we done
+    if (mem_ready_queue_.empty() && mem_waiting_vector.size() == 0)
+      return false;
+    else if (mem_ready_queue_.size() >
+             0) { // there is memory that has finished waiting for data
+      auto instrPair = mem_ready_queue_.front();
+      mem_ready_queue_.pop();
+      mem2_wb_queue_.push(instrPair);
       return true;
-    } else {
-      memTickDelayCounter = 0;
+    } else { // there is data waiting for memory
+      return true;
     }
   }
 
-  // DANGER: make sure instruction is not thrown away
-  execute_mem_queue_.pop();
-  mem_wb_queue_.push(instrPair);
-
-  // If we got here, then we made progress
+  // pipe non memory operations through
+  auto instrPair = mem1_mem2_queue_.front();
+  mem1_mem2_queue_.pop();
+  mem2_wb_queue_.push(instrPair);
   return true;
 }
 
@@ -395,17 +449,17 @@ bool SM::WriteBack() {
 
   // TODO: Is there anything that can stall this pipeline phase?
 
-  if (mem_wb_queue_.empty()) {
+  if (mem2_wb_queue_.empty()) {
     /*
         TODO: If we have nothing to consume, then we did not make progress.
     */
     return progress;
   }
 
-  auto [instr, warp_id] = mem_wb_queue_.front();
+  auto [instr, warp_id] = mem2_wb_queue_.front();
 
   // DANGER: make sure instruction is not thrown away
-  mem_wb_queue_.pop();
+  mem2_wb_queue_.pop();
 
   // TODO: Maybe need to push onto "finished instructions" (?)
 
@@ -425,4 +479,28 @@ bool SM::WriteBack() {
   // If we got here, then we made progress
 
   return true;
+}
+
+/******************************************************************************
+ memory call back
+ ******************************************************************************/
+
+bool SM::handleMemOpCallback(int64_t tag) {
+
+  for (int i = 0; i < mem_waiting_vector.size(); i++) {
+    mem_waiting_t wait = mem_waiting_vector[i];
+    if (wait.tag == tag) {
+      std::pair<trace_op *, uint64_t> returnPair(wait.instr, wait.warpID);
+      mem_ready_queue_.push(returnPair); // push the
+      mem_waiting_vector.erase(mem_waiting_vector.begin() + i);
+      printf("found data from memory\n");
+      return true;
+    }
+  }
+
+  // we must find the person who requested the memory data in
+  // mem_waiting_vector;
+  printf("should not happen\n");
+  assert(false);
+  return false;
 }

@@ -16,9 +16,17 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
   instructionCount_ = 0; // question: do I need self????
   // initialize registers and state of each warp
 
-  std::vector<warp_t> allWarps(
-      activeWarps); // need vector because size is variable
+  activeWarps_ = activeWarps;
+  stallCount_ = 0;
+  allWarps.resize(activeWarps);
 
+  // make all warps uninitialized
+  for (int i = 0; i < activeWarps; i++) {
+    warp_t *currWarp = &(allWarps[i]);
+    currWarp->warpState = UNINITIALIZED;
+  }
+
+  // Might not need this for loop due to previous for loop
   for (int i = 0; i < MAXWARPS; i++) {
     warp_t *currWarp = &(allWarps[i]); // question: do I need self.warps[i]????
     currWarp->warpState = UNINITIALIZED;
@@ -51,15 +59,18 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
 
   // move data from allWarps to waitingWarps;
   for (int i = 0; i < activeWarps; i++) {
-    warp_t currWarp = allWarps[i];
+    warp_t *currWarp = &(allWarps[i]);
+    assert(currWarp->dq_.front().second == -1);
     waitingWarps.push(currWarp);
   }
 
   // pop data from waitingWarps to
   for (int i = 0; i < std::min(activeWarps, MAXWARPS); i++) {
     warps_[i] = waitingWarps.front();
+    assert(waitingWarps.front()->dq_.front().second == -1);
+    assert(warps_[i]->dq_.front().second == -1);
     waitingWarps.pop();
-    warp_t *currWarp = &(warps_[i]);
+    warp_t *currWarp = (warps_[i]);
 
     currWarp->warpState = RUNNABLE;
 
@@ -69,7 +80,9 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
     }
   }
 
-  assert((warps_[0].dq_).size() == instructionCount_);
+  printf("instruction count: %d\n", instructionCount_);
+  assert((warps_[0]->dq_).size() == instructionCount_);
+  assert(warps_[0]->dq_.front().second == -1);
 
   // QUESTION: when we read all ops do we
 
@@ -90,29 +103,37 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
  * 1. intitialized and not finished
  * 2. not stalled from memory
  * 3. does not have any hazards
+ * 4. currently implementing barriers
  * @return True if any instructions were successfully fetched.
  */
 
 // TODO: I think this was meant to belong to the SM class? This needs to be
 // double-checked.
 std::pair<trace_op *, uint64_t> SM::scheduler() {
+  bool isStalled = false;
+
   for (int i = 0; i < MAXWARPS; i++) {
     // std::cout << "Warp " << i << " state: " << warps_[i].warpState <<
     // std::endl;
-    if (warps_[i].warpState == FINISHED ||
-        warps_[i].warpState == UNINITIALIZED) {
+    if (warps_[i]->warpState == FINISHED ||
+        warps_[i]->warpState == UNINITIALIZED) {
       continue;
-    } else if (warps_[i].warpState == STALLED) {
+    } else if (warps_[i]->warpState == STALLED) {
+      isStalled =
+          true; // at least 1 warp is stalling, so we are definitly not finished
+      printf("warp : %d is in a barrier and can not execute\n", i);
       continue;
-    } else if (warps_[i].warpState == RUNNABLE) {
-      if (warps_[i].dq_.empty()) {
+    } else if (warps_[i]->warpState == RUNNABLE) {
+      if (warps_[i]->dq_.empty()) {
+        // printf("queue empty!\n");
         continue;
       }
       //   int *x = NULL;
       //   *x = 1;
       // checks that there is no hazard
       // ASSUMES that rs1 and rs2 can not be 0
-      auto [warp_next_instr, warp_id] = warps_[i].dq_.front();
+      // assert(warps_[0]->dq_.front().second == -1);
+      auto [warp_next_instr, warp_id] = warps_[i]->dq_.front();
 
       // IDK: removed all tags and instead will generate them when scheduler
       // dispatches
@@ -123,22 +144,89 @@ std::pair<trace_op *, uint64_t> SM::scheduler() {
       int rs1 = warp_next_instr->src_reg[0];
       int rs2 = warp_next_instr->src_reg[1];
 
-      if (rs1 != -1 && warps_[i].rf_[rs1].ready == false) {
+      if (rs1 != -1 && warps_[i]->rf_[rs1].ready == false) {
         std::cout << "Register rs1=" << rs1
                   << " is not ready, so the instruction (" << warp_next_instr
                   << ", " << i << ")"
                   << " is stalled" << std::endl;
         continue;
-      } else if (rs2 != -1 && warps_[i].rf_[rs2].ready == false) {
+      } else if (rs2 != -1 && warps_[i]->rf_[rs2].ready == false) {
         std::cout << "Register rs2=" << rs2
                   << " is not ready, so the warp is stalled" << std::endl;
         continue;
+      } else if (warp_next_instr->op == BARRIER) { // checks if it is a barrier
+        // needs to wait until all instruction that update
+        // architectural state retires
+        bool skip = false;
+        for (int regNum = 0; regNum < REGISTER_COUNT; regNum++) {
+          if (warps_[i]->rf_[regNum].ready == false)
+            skip = true;
+        }
+        // we can not issue barrier because one instruction is still in pipeline
+        // that has not yet commited to architectural state/register files
+        if (skip)
+          continue;
+        // get ready to issue the barrier instruction through the pipeline
+        int selectedWarp = i;
+        warps_[i]->dq_.pop_front();
+        std::pair<trace_op *, uint64_t> returnPair;
+        returnPair.first = warp_next_instr;
+        returnPair.second = selectedWarp;
+
+        stallCount_++;
+        warps_[i]->warpState = STALLED;
+        printf("stallCount: %d\n", stallCount_);
+        // set all warps back to runnable if very thread met barrier
+        if (stallCount_ == activeWarps_) {
+          printf("wefijwefwef\n");
+          stallCount_ = 0; // reset stallcount;
+          // checks that all warps are stalled
+          for (int i = 0; i < activeWarps_; i++) {
+            assert(allWarps[i].warpState == STALLED);
+          }
+          // sets all warps to runnable
+          for (int i = 0; i < activeWarps_; i++) {
+            allWarps[i].warpState = RUNNABLE;
+          }
+          // assertions to check for correctness
+          for (int i = 0; i < std::min(activeWarps_, MAXWARPS); i++) {
+            assert(warps_[i]->warpState == RUNNABLE);
+          }
+          // return now so that you don't add yourself back to the waiting
+          // queue;
+          return returnPair;
+        }
+
+        // checks if there are any warp in the waiting queue we can grab
+        // as we are stalling
+        if (waitingWarps.size() > 0) {
+          waitingWarps.push(warps_[i]);
+          warps_[i] = waitingWarps.front();
+          waitingWarps.pop();
+          warp_t *currWarp = (warps_[i]);
+          if (currWarp->warpState == STALLED) {
+            // check that all registers are not used
+            for (int reg = 0; reg < REGISTER_COUNT; reg++) {
+              assert(currWarp->rf_[reg].ready == true);
+            }
+          } else {
+            // Initialize the register file to have all registers be ready.
+            for (int reg = 0; reg < REGISTER_COUNT; reg++) {
+              currWarp->rf_[reg] = {.regNum = reg, .ready = true};
+            }
+            printf("warpState: %d\n", currWarp->warpState);
+            assert(currWarp->warpState != STALLED &&
+                   currWarp->warpState == UNINITIALIZED);
+            currWarp->warpState = RUNNABLE;
+          }
+        }
+        return returnPair;
       } else {
         // no register conflicts, can return
         int selectedWarp = i;
 
         // trace_op *warpInstr = warps_[i].dq_.pop();
-        warps_[i].dq_.pop_front(); // TODO: Check if this is right
+        warps_[i]->dq_.pop_front(); // TODO: Check if this is right
 
         std::pair<trace_op *, uint64_t> returnPair;
 
@@ -149,30 +237,32 @@ std::pair<trace_op *, uint64_t> SM::scheduler() {
         // TODO: put this in wb stage
         // this means that schedule should happen in fetch_falling and
         // wb should all do it's computation in rising
-        if (warps_[i].dq_.size() == 0) {
-          warp_t *currWarp = &(warps_[i]);
+        if (warps_[i]->dq_.size() == 0) {
+          warp_t *currWarp = (warps_[i]);
           std::cout << "warp: " << i << " has finished!" << std::endl;
           currWarp->warpState = FINISHED;
         }
 
         // schedule new warp if current warp is finished
-        if (warps_[i].warpState == FINISHED && waitingWarps.size() > 0) {
+        if (warps_[i]->warpState == FINISHED && waitingWarps.size() > 0) {
           warps_[i] = waitingWarps.front();
           waitingWarps.pop();
-          warp_t *currWarp = &(warps_[i]);
-
-          currWarp->warpState = RUNNABLE;
+          warp_t *currWarp = (warps_[i]);
 
           // Initialize the register file to have all registers be ready.
           for (int reg = 0; reg < REGISTER_COUNT; reg++) {
             currWarp->rf_[reg] = {.regNum = reg, .ready = true};
           }
+
+          assert(currWarp->warpState != STALLED);
+          currWarp->warpState = RUNNABLE;
         }
 
         return returnPair;
       }
     }
   }
+
   // all warps are stalled
   std::cout << "All warps are stalled." << std::endl;
   int selectedWarp = -1;
@@ -219,7 +309,7 @@ bool SM::Fetch() {
   if (currentInstruction == NULL && warpNumber == -1)
     return false;
 
-  warp_t *scheduledWarp = &(warps_[warpNumber]);
+  warp_t *scheduledWarp = (warps_[warpNumber]);
 
   // update register files
 
@@ -474,7 +564,7 @@ bool SM::WriteBack() {
   */
   int dest = instr->dest_reg;
   if (dest != -1)
-    warps_[warp_id].rf_[dest].ready = true;
+    warps_[warp_id]->rf_[dest].ready = true;
 
   // If we got here, then we made progress
 

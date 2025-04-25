@@ -13,6 +13,7 @@ extern "C" {
 
 #include "sm.h"
 #define TOTALTHREADS 32 * 64;
+#define BLOCKS 1;
 #define THREADSPERWARP 32;
 #define NUMSM 1;
 
@@ -33,11 +34,11 @@ int64_t *memOpTag = NULL;
 // Need this prototype so the reference is defined in `init`:
 void memOpCallback(int, int64_t);
 
-void memOpCallback(int warp_id, int64_t tag) {
+void memOpCallback(int sm_id, int64_t tag) {
   auto sm = streaming_multiprocessors[0];
 
   // Notify the processor
-  printf("got data from warp %d\n", warp_id);
+  printf("got data from warp %d\n", sm_id);
   bool processorHadPendingRequest = sm->handleMemOpCallback(tag);
   assert(processorHadPendingRequest);
 }

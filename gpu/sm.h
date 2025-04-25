@@ -74,6 +74,9 @@ public:
 
   ProcessorArgs args_;
 
+  // to keep track of how many warps seen the barrier;
+  int stallCount_;
+
   /** @brief The processor simulator pointer. */
   processor *ps_;
 
@@ -87,7 +90,9 @@ public:
   branch *bs_;
 
   /**the queue of active warps waiting for a slot */
-  std::queue<warp_t> waitingWarps;
+  std::queue<warp_t *> waitingWarps;
+
+  std::vector<warp_t> allWarps; // need vector because size is variable
 
   int instructionCount_;
 
@@ -109,7 +114,7 @@ private:
 
   /** @brief structure that stores all info about warps, similar to thread
    * control block*/
-  std::array<warp_t, MAXWARPS> warps_;
+  std::array<warp_t *, MAXWARPS> warps_;
 
   /** @brief Whether  a pending branch request. */
   std::optional<uint64_t> pending_branch_;

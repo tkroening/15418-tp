@@ -9,7 +9,17 @@
 // TRACE H - Public interface to trace file reader
 //
 
-enum op_type { NONE, MEM_LOAD, MEM_STORE, BRANCH, ALU, ALU_LONG, NOP, END };
+enum op_type {
+  NONE,
+  MEM_LOAD,
+  MEM_STORE,
+  BRANCH,
+  ALU,
+  ALU_LONG,
+  NOP,
+  BARRIER,
+  END
+};
 
 typedef int proc_id;
 

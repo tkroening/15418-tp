@@ -153,6 +153,15 @@ trace_op *getNextOp(int processorNum) {
     op->src_reg[1] = -1;
     op->dest_reg = -1;
     break;
+  case 'F':
+    op->op = BARRIER;
+    (void)!fscanf(tf, "%lx %d, %d, %d\n", &pcAddress, &op0, &op1, &op2);
+    op->dest_reg = -1;
+    op->memAddress = -1;
+    op->size = -1;
+    op->src_reg[1] = -1;
+    op->src_reg[0] = -1;
+    break;
   case 'L':
     op->op = MEM_LOAD;
     (void)!fscanf(tf, "%lx,%d", &memAddress, &opSize);

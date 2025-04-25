@@ -9,6 +9,8 @@
 #include <sys/types.h>
 #include <variant>
 
+#include "cfg.h"
+
 // Constructor
 SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
        trace_reader *tr, int activeWarps, int smid)
@@ -99,6 +101,12 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
 
   /** @brief moves all ops onto instruction queue of warps */
   trace_op *op;
+
+  /*
+      TODO: This needs to be taken out and moved somewhere proper.
+  */
+  std::vector<trace_op *> instrs;
+
   while (true) {
     /*
         TODO: For now, the implementation can only handle one SM because
@@ -122,6 +130,7 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
           (currWarp->dq_).push_back({op, i});
       }
       instructionCount_++;
+      instrs.push_back(op);
       assert((warps_[0].dq_).size() == instructionCount_);
     }
   }
@@ -130,6 +139,8 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
   // QUESTION: when we read all ops do we
 
   // initialize insturction queue of each warp
+
+  CFG cfg(instrs);
 }
 
 /******************************************************************************

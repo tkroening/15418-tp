@@ -36,6 +36,8 @@ enum op_type
     BRA,
     CVTA,
     ADD,
+    SUB,
+    SHR,
     LD,
     ST,
     RET
@@ -62,7 +64,10 @@ enum op_variant
 {
     OP_VARIANT_NONE, // Undefined - does not apply
     MUL_WIDE,
-    SETP_GE
+    SETP_GE,
+    SETP_LT,
+    SETP_GT,
+    BRA_UNI
 };
 
 typedef int proc_id;

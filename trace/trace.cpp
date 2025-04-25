@@ -213,6 +213,16 @@ void parseOperatorInfo(trace_op *new_trace_op, std::string operator_info_string)
         assert(modifier_strs.size() == 1);
 
         new_trace_op->width = parseOpWidth(modifier_strs[0]);
+    } else if (op_str == "sub") {
+        new_trace_op->op = SUB;
+        assert(modifier_strs.size() == 1);
+
+        new_trace_op->width = parseOpWidth(modifier_strs[0]);
+    } else if (op_str == "shr") {
+        new_trace_op->op = SHR;
+        assert(modifier_strs.size() == 1);
+
+        new_trace_op->width = parseOpWidth(modifier_strs[0]);
     } else if (op_str == "setp") {
         new_trace_op->op = SETP;
         assert(modifier_strs.size() == 2);
@@ -220,6 +230,10 @@ void parseOperatorInfo(trace_op *new_trace_op, std::string operator_info_string)
         // Parse the comparator
         if (modifier_strs[0] == "ge") {
             new_trace_op->variant = SETP_GE;
+        } else if (modifier_strs[0] == "lt") {
+            new_trace_op->variant = SETP_LT;
+        } else if (modifier_strs[0] == "gt") {
+            new_trace_op->variant = SETP_GT;
         } else {
             throw std::runtime_error("Unsupported variant of setp: " + modifier_strs[0]);
         }
@@ -228,8 +242,15 @@ void parseOperatorInfo(trace_op *new_trace_op, std::string operator_info_string)
     } else if (op_str == "bra") {
         new_trace_op->op = BRA;
         
-        // TODO: Branch variants are *not* supported for now
-        assert(modifier_strs.size() == 0);
+        assert(modifier_strs.size() >= 0);
+
+        if (modifier_strs.size() == 1) {
+            if (modifier_strs[0] == "uni") {
+                new_trace_op->variant = BRA_UNI;
+            } else {
+                throw std::runtime_error("Unsupported variant of bra: " + modifier_strs[0]);
+            }
+        }
     } else if (op_str == "cvta") {
         new_trace_op->op = CVTA;
         assert(modifier_strs.size() == 2);
@@ -340,6 +361,8 @@ void parseInstruction(std::set<std::string> &register_names, trace_op *new_trace
         }
         case MUL :
         case ADD :
+        case SUB :
+        case SHR :
         case SETP : {
             assert(operand_strings.size() == 3);
             new_trace_op->dest_reg = make_char_array(operand_strings[0]);

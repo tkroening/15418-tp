@@ -42,9 +42,9 @@ class Param(Translation):
     def transform(self, currentState: TranspilerState, line: str):
         # Start translating PTX
         if line.strip() == "---":
-            return TranspilerState.PTX, line
+            return TranspilerState.PTX, line + "\n"
 
-        return currentState, line
+        return currentState, line + "\n"
 
 class LDParam(Translation):
     def match(self, line: str, currentState: TranspilerState) -> bool:
@@ -152,10 +152,14 @@ class Branch(Translation):
 
     def transform(self, currentState: TranspilerState, line: str) -> tuple[TranspilerState, str]:
         # WARNING: bra.uni handled the same as bra
-        op, label = line.split()
+        operator, label = line.split()
         label = label[:-1]
 
-        return currentState, f"bra {label}\n"
+        if operator.strip() == "bra":
+            return currentState, f"bra {label}\n"
+        else:
+            op, variant = operator.split(".")
+            return currentState, f"{op}.{variant} {label}\n"
 
 class CVTA(Translation):
     def match(self, line: str, currentState: TranspilerState) -> bool:
@@ -198,6 +202,34 @@ class Add(Translation):
 
         return currentState, f"add.{size} {dest} {src1} {src2}\n"
 
+class Sub(Translation):
+    def match(self, line: str, currentState: TranspilerState) -> bool:
+        return line.startswith("sub.")
+
+    def transform(self, currentState: TranspilerState, line: str) -> tuple[TranspilerState, str]:
+        operator, dest, src1, src2 = line.split()
+        dest = dest[:-1]
+        src1 = src1[:-1]
+        src2 = src2[:-1]
+
+        _, size = operator.split(".")
+
+        return currentState, f"sub.{size} {dest} {src1} {src2}\n"
+
+class Shr(Translation):
+    def match(self, line: str, currentState: TranspilerState) -> bool:
+        return line.startswith("shr.")
+
+    def transform(self, currentState: TranspilerState, line: str) -> tuple[TranspilerState, str]:
+        operator, dest, src1, src2 = line.split()
+        dest = dest[:-1]
+        src1 = src1[:-1]
+        src2 = src2[:-1]
+
+        _, size = operator.split(".")
+
+        return currentState, f"shr.{size} {dest} {src1} {src2}\n"
+
 class Load(Translation):
     def match(self, line: str, currentState: TranspilerState) -> bool:
         return line.startswith("ld.")
@@ -237,7 +269,7 @@ class Label(Translation):
     def transform(self, currentState: TranspilerState, line: str) -> tuple[TranspilerState, str]:
         # Just leave as is
 
-        return currentState, line
+        return currentState, line + "\n"
 
 class Ret(Translation):
     def match(self, line: str, currentState: TranspilerState) -> bool:
@@ -247,6 +279,7 @@ class Ret(Translation):
         return currentState, "ret\n"
 
 def processLine(translations : list[Translation], outputFile, line : str, currentState: TranspilerState) -> tuple[TranspilerState, str]:
+    line = line.strip()
     for translation in translations:
         if not translation.match(line, currentState):
             continue
@@ -259,8 +292,8 @@ def processLine(translations : list[Translation], outputFile, line : str, curren
         raise Exception("No translation matches line: " + line)
 
 if __name__ == "__main__":
-    ptxFile=open("ptx_saxpy.txt","r")
-    outputFile=open("trace.txt","w+")
+    ptxFile=open("ptx_binsearch.txt","r")
+    outputFile=open("trace_binsearch.txt","w+")
 
     lines=ptxFile.readlines()
 
@@ -278,6 +311,8 @@ if __name__ == "__main__":
         CVTA,
         Mul,
         Add,
+        Sub,
+        Shr,
         Load,
         Store,
         Label,

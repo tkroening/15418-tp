@@ -1,0 +1,60 @@
+int _param_0 32
+int _param_1 64
+int* _param_2 8928 9385 4950 6247 11255 15290 2469 11094 14127 13579 1043 12060 166 5382 166 166 15290 9385 14371 10388 9249 2983 2117 1275 2278 287 1043 5382 11501 1263 2278 6447
+int* _param_3 166 287 750 1043 1263 1275 1577 1865 2117 2278 2280 2469 2660 2983 3058 3396 3773 4938 4950 5224 5382 5461 6032 6247 6398 6447 6646 7179 8319 8785 8802 8866 8928 9033 9053 9204 9249 9385 9400 9698 9971 10247 10388 10513 10794 10802 10920 11094 11202 11255 11271 11501 11870 12060 12266 13579 13729 13933 14127 14349 14371 14442 14977 15290
+int* _param_4 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+---
+ldparam.u32 %r13 _param_0
+ldparam.u32 %r12 _param_1
+ldparam.u64 %rd3 _param_2
+ldparam.u64 %rd4 _param_3
+ldparam.u64 %rd5 _param_4
+mov.u32 %r14 %ctaid.x
+mov.u32 %r15 %ntid.x
+mov.u32 %r16 %tid.x
+mul.s32 %r1 %r15 %r14
+add.s32 %r1 %r1 %r16
+setp.ge.s32 %p1 %r1 %r13
+@%p1 bra $L__BB0_9
+cvta.global.u64 %rd6 %rd5
+cvta.global.u64 %rd7 %rd3
+mul.wide.s32 %rd8 %r1 4
+add.s64 %rd9 %rd7 %rd8
+ld.global.u32 %r2 %rd9
+add.s64 %rd1 %rd6 %rd8
+mov.u32 %r17 -1
+st.global.u32 %rd1 %r17
+setp.lt.s32 %p2 %r12 1
+@%p2 bra $L__BB0_9
+add.s32 %r23 %r12 -1
+cvta.global.u64 %rd2 %rd4
+mov.u32 %r24 0
+$L__BB0_3:
+sub.s32 %r19 %r23 %r24
+shr.u32 %r20 %r19 31
+add.s32 %r21 %r19 %r20
+shr.s32 %r22 %r21 1
+add.s32 %r6 %r22 %r24
+mul.wide.s32 %rd10 %r6 4
+add.s64 %rd11 %rd2 %rd10
+ld.global.u32 %r7 %rd11
+setp.lt.s32 %p3 %r2 %r7
+@%p3 bra $L__BB0_7
+bra.uni $L__BB0_4
+$L__BB0_7:
+add.s32 %r23 %r6 -1
+bra.uni $L__BB0_8
+$L__BB0_4:
+setp.gt.s32 %p4 %r2 %r7
+@%p4 bra $L__BB0_6
+bra.uni $L__BB0_5
+$L__BB0_6:
+add.s32 %r24 %r6 1
+$L__BB0_8:
+setp.ge.s32 %p5 %r23 %r24
+@%p5 bra $L__BB0_3
+bra.uni $L__BB0_9
+$L__BB0_5:
+st.global.u32 %rd1 %r6
+$L__BB0_9:
+ret

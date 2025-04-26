@@ -1,3 +1,6 @@
+#ifndef CFG_H
+#define CFG_H
+
 #include <optional>
 #include <set>
 #include <string>
@@ -11,6 +14,27 @@ extern "C" {
 class CFG {
     public:
         CFG(std::vector<trace_op*> instructions);
+
+        std::string GetLineBasicBlockName(int instruction_idx) {
+            assert(line_basic_block_names_.find(instruction_idx) != line_basic_block_names_.end());
+            return line_basic_block_names_[instruction_idx];
+        }
+
+        int GetBasicBlockLineNo(std::string bb_name) {
+            return basic_block_line_nos_[bb_name];
+        }
+
+        std::vector<std::pair<std::optional<std::string>, std::string>> GetSuccessors(std::string bb_name) {
+            if (successors_.find(bb_name) == successors_.end()) {
+                return {};
+            }
+
+            return successors_[bb_name];
+        }
+
+        std::string GetIPDom(std::string bb_name) {
+            return ipdoms_[bb_name];
+        }
 
     private:
         void BuildCFG();
@@ -52,3 +76,5 @@ class CFG {
         // Immediate post-dominators - unique ipdom per node
         std::unordered_map<std::string, std::string> ipdoms_;
 };
+
+#endif

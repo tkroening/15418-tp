@@ -10,6 +10,25 @@
 #include <variant>
 
 #include "cfg.h"
+#include "scheduler.h"
+
+std::string op_to_string(op_type op_t) {
+  switch (op_t) {
+    case LABEL : { return "LABEL"; }
+    case ADD : { return "ADD"; }
+    case LDPARAM : { return "LDPARAM"; }
+    case MOV : { return "MOV"; }
+    case MUL : { return "MUL"; }
+    case SETP : { return "SETP"; }
+    case BRA : { return "BRA"; }
+    case CVTA : { return "CVTA"; }
+    case SUB: { return "SUB"; }
+    case SHR: {return "SHR"; }
+    case LD: { return "LD"; }
+    case ST: { return "ST"; }
+    case RET: { return "RET"; }
+  }
+}
 
 // Constructor
 SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
@@ -25,6 +44,9 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
     if (i < activeWarps) {
       // all warps are initially runnable
       currWarp->warpState = RUNNING;
+
+      // No control hazard initially
+      currWarp->has_active_control_hazard = false;
 
       // Initialize the register file to have all registers be ready.
       for (int reg_idx = 0; reg_idx < tr->num_registers; reg_idx++) {
@@ -94,6 +116,13 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
         currWarp->rf_["\%ntid.x"].register_values_[tid] = 32;
         currWarp->rf_["\%tid.x"].register_values_[tid] = tid;
       }
+
+      // Lane mask is assumed to be 100% active initially
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        currWarp->active_mask[tid] = true;
+        currWarp->finished_mask[tid] = false;
+      }
+
     } else {
       currWarp->warpState = UNINITIALIZED;
     }
@@ -123,129 +152,24 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
                 << instructionCount_ << " instructions." << std::endl;
       break;
     } else {
-      // adds the op onto the instruction queue of all initialized threads
-      for (int i = 0; i < MAXWARPS; i++) {
-        warp_t *currWarp = &(warps_[i]);
-        if (currWarp->warpState != UNINITIALIZED)
-          (currWarp->dq_).push_back({op, i});
-      }
       instructionCount_++;
       instrs.push_back(op);
-      assert((warps_[0].dq_).size() == instructionCount_);
+      assert(instrs.size() == instructionCount_);
     }
   }
-  assert((warps_[0].dq_).size() == instructionCount_);
 
-  // QUESTION: when we read all ops do we
-
-  // initialize insturction queue of each warp
-
-  CFG cfg(instrs);
+  instructions_ = instrs;
+  cfg_ = new CFG(instrs);
+  scheduler_ = new Scheduler(this);
 }
 
-/******************************************************************************
- scheduler
- ******************************************************************************/
-
-/**
- * @brief Schedules the next warp to be executed
- *
- * Looks for warps that are
- * 1. intitialized and not finished
- * 2. not stalled from memory
- * 3. does not have any hazards
- * @return True if any instructions were successfully fetched.
- */
-
-// TODO: I think this was meant to belong to the SM class? This needs to be
-// double-checked.
-std::pair<trace_op *, uint64_t> SM::scheduler() {
-  for (int i = 0; i < MAXWARPS; i++) {
-    std::cout << "Warp " << i << " state: " << warps_[i].warpState << std::endl;
-    if (warps_[i].warpState == FINISHED ||
-        warps_[i].warpState == UNINITIALIZED) {
-      std::cout << "state is finished or uniintialized" << std::endl;
-      continue;
-    } else if (warps_[i].warpState == STALLED) {
-      std::cout << "state is stalled" << std::endl;
-      continue;
-    } else if (warps_[i].warpState == RUNNABLE || warps_[i].warpState == RUNNING) {
-      if (warps_[i].dq_.empty()) {
-        std::cout << "dq is empty!" << std::endl;
-        continue;
-      }
-      //   int *x = NULL;
-      //   *x = 1;
-      // checks that there is no hazard
-      // ASSUMES that rs1 and rs2 can not be 0
-      auto [warp_next_instr, warp_id] = warps_[i].dq_.front();
-
-      // Idk
-      assert(warp_id == i);
-
-      /*
-          Check that all registers are ready
-
-          TODO: Is WAW a problem?
-      */
-      bool all_sources_ready = true;
-
-      for (int source_idx = 0; source_idx < warp_next_instr->num_sources; source_idx++) {
-        // Check that the source is a register
-        operand_t source = warp_next_instr->sources[source_idx];
-        if (source.op_kind != REGISTER) {
-          continue;
-        }
-
-        // Check that the register is ready
-        std::string register_name = source.register_name;
-        if (!warps_[i].rf_[register_name].ready_)  {
-          all_sources_ready = false;
-
-          std::cout << "Register "  << register_name
-                    << "is not ready, so the instruction (" << warp_next_instr
-                    << ")"
-                    << "is stalled" << std::endl;
-          break;
-        }
-      }
-
-      if (all_sources_ready) {
-        // no register conflicts, can return
-        int selectedWarp = i;
-
-        // trace_op *warpInstr = warps_[i].dq_.pop();
-        warps_[i].dq_.pop_front(); // TODO: Check if this is right
-
-        std::pair<trace_op *, uint64_t> returnPair;
-
-        // TODO: Was this the intended instruction (Ethan: YES)
-        returnPair.first = warp_next_instr;
-        returnPair.second = selectedWarp;
-
-        // TODO: put this in wb stage
-        // this means that schedule should happen in fetch_falling and
-        // wb should all do it's computation in rising
-        if (warps_[i].dq_.size() == 0) {
-          warp_t *currWarp = &(warps_[i]);
-          std::cout << "warp: " << i << " has finished!" << std::endl;
-          currWarp->warpState = FINISHED;
-        }
-
-        return returnPair;
-      }
-    }
-  }
-  // all warps are stalled
-  std::cout << "All warps are stalled." << std::endl;
-  int selectedWarp = -1;
-  trace_op *warpInstr = NULL;
-  std::pair<trace_op *, uint64_t> returnPair;
-  returnPair.first = warpInstr;
-  returnPair.second = selectedWarp;
-  return returnPair;
+warp_t *SM::GetWarpPointer(int warp_id) {
+  return &(warps_[warp_id]);
 }
 
+std::vector<trace_op *> SM::GetInstructions() {
+  return instructions_;
+}
 /******************************************************************************
  Fetch
  ******************************************************************************/
@@ -269,33 +193,45 @@ bool SM::Fetch() {
     return progress;
   }
 
-  std::pair<trace_op *, uint64_t> instrPair = scheduler();
+  sm_instruction_t *sm_instr = scheduler_->GetNextInstruction();
+  if (sm_instr == NULL) {
+    return false;
+  }
 
-  trace_op *currentInstruction = instrPair.first;
-  uint64_t warpNumber = instrPair.second;
+  trace_op *currentInstruction = sm_instr->t_op;
+  uint64_t warpNumber = sm_instr->warp_id;
 
   std::cout << "Current Instruction"
             << " (Warp #" << warpNumber << ")"
-            << ": " << currentInstruction << std::endl;
-
-  // do not make progress if all warps are stalled
-  if (currentInstruction == NULL && warpNumber == -1)
-    return false;
+            << ": " << currentInstruction << " "
+            << "[" << op_to_string(currentInstruction->op) << "]" << std::endl;
 
   warp_t *scheduledWarp = &(warps_[warpNumber]);
 
-  // update register files
-
-  // TODO: What was "I" meant to be?
-
-  // If the register is -1, it means no register is required.
+  /*
+      Scoreboarding: make destination as unavailable
+  */
   if (currentInstruction->dest_reg != NULL) {
     std::string register_name = currentInstruction->dest_reg;
 
     scheduledWarp->rf_[register_name].ready_ = false;
   }
 
-  fetch_decode_queue_.push(instrPair);
+  /*
+      Mark control hazard
+
+      TODO: Should this be done in Fetch? Can it be moved elsewhere? The danger
+      is that it is not correct to put subsequent instructions in the pipeline.
+  */
+  if (currentInstruction->op == BRA || currentInstruction->op == RET) {
+    /*
+        Control hazard - don't want to issue any more instructions from this
+        warp.
+    */
+    warps_[warpNumber].has_active_control_hazard = true;
+  }
+
+  fetch_decode_queue_.push(sm_instr);
 
   // If we got here, then we made progress
   return true;
@@ -460,12 +396,14 @@ bool SM::WriteBack() {
     return progress;
   }
 
-  auto [instr, warp_id] = mem_wb_queue_.front();
+  auto sm_instr = mem_wb_queue_.front();
+  auto instr = sm_instr->t_op;
+  auto warp_id = sm_instr->warp_id;
 
   // DANGER: make sure instruction is not thrown away
   mem_wb_queue_.pop();
 
-  DoComputation({instr, warp_id});
+  DoComputation(sm_instr);
 
   // TODO: Maybe need to push onto "finished instructions" (?)
 
@@ -534,6 +472,14 @@ Value convertValue(Value oldValue, op_width targetSize) {
       }
     }
   }, oldValue);
+
+  return result;
+}
+
+bool extractBoolFromValue(Value v) {
+  bool result = std::visit([](auto &v_prime) -> bool {
+    return static_cast<bool>(v_prime);
+  }, v);
 
   return result;
 }
@@ -607,6 +553,9 @@ Value loadValueFromPointer(trace_op *instr, ValueType ptr) {
     case F32 : {
       return *reinterpret_cast<float *>(ptr);
     }
+    case U32 : {
+      return *reinterpret_cast<uint32_t *>(ptr);
+    }
     default : {
       throw std::runtime_error("loadValueFromPointer(): Unsupported pointer type");
     }
@@ -630,6 +579,11 @@ void storeValueIntoPointer(trace_op *instr, PtrType ptr, ValueType src) {
   switch (instr->width) {
     case F32 : {
       float *new_ptr = reinterpret_cast<float *>(ptr);
+      *new_ptr = src;
+      break;
+    }
+    case U32 : {
+      uint32_t *new_ptr = reinterpret_cast<uint32_t *>(ptr);
       *new_ptr = src;
       break;
     }
@@ -662,6 +616,13 @@ void storeValue(trace_op* instr, Value destValue, Value srcValue) {
           static_cast<float>(v)
         );
       }
+      case U32 : {
+        return storeValueHelper(
+          instr,
+          destValue,
+          static_cast<uint32_t>(v)
+        );
+      }
       default : {
         throw std::runtime_error("Unsupported src type for storeValue");
       }
@@ -669,8 +630,27 @@ void storeValue(trace_op* instr, Value destValue, Value srcValue) {
   }, srcValue);
 }
 
-void SM::DoComputation(std::pair<trace_op *, uint64_t> instrPair) {
-  auto [instr, warp_id] = instrPair;
+bool VariantIsIntegral(Value v) {
+  return std::holds_alternative<int32_t>(v) ||
+  std::holds_alternative<uint32_t>(v) ||
+  std::holds_alternative<int64_t>(v) ||
+  std::holds_alternative<uint64_t>(v);
+}
+
+
+
+void SM::DoComputation(sm_instruction_t *sm_instr) {
+  auto instr = sm_instr->t_op;
+  auto instr_idx = sm_instr->instruction_idx;
+  auto warp_id = sm_instr->warp_id;
+
+  std::cout << "SM::DoComputation(" << op_to_string(instr->op) << ") ";
+  for (int tid = 0; tid < THREADSPERWARP; tid++) {
+    std::cout << warps_[warp_id].active_mask[tid];
+  }
+
+  std::cout << std::endl;
+
 
   // Want to fetch all of the "source" values
   std::vector<std::vector<Value>> source_values;
@@ -697,11 +677,14 @@ void SM::DoComputation(std::pair<trace_op *, uint64_t> instrPair) {
       assert(instr->width != OP_WIDTH_NONE);
 
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        if (!warps_[warp_id].active_mask[tid]) { continue; }
+
         result[tid] = convertValue(source_values[0][tid], instr->width);
       }
 
       // Write back result
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        if (!warps_[warp_id].active_mask[tid]) { continue; }
         warps_[warp_id].rf_[instr->dest_reg].register_values_[tid] = result[tid];
       }
 
@@ -715,6 +698,8 @@ void SM::DoComputation(std::pair<trace_op *, uint64_t> instrPair) {
         Cast the two operands to the desired width
       */
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        if (!warps_[warp_id].active_mask[tid]) { continue; }
+
         Value a = source_values[0][tid];
         Value b = source_values[1][tid];
 
@@ -744,6 +729,8 @@ void SM::DoComputation(std::pair<trace_op *, uint64_t> instrPair) {
 
       // Write back
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        if (!warps_[warp_id].active_mask[tid]) { continue; }
+
         warps_[warp_id].rf_[instr->dest_reg].register_values_[tid] = result[tid];
       }
 
@@ -757,6 +744,8 @@ void SM::DoComputation(std::pair<trace_op *, uint64_t> instrPair) {
           Cast and do the add
       */
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        if (!warps_[warp_id].active_mask[tid]) { continue; }
+
         Value a = source_values[0][tid];
         Value b = source_values[1][tid];
 
@@ -769,6 +758,91 @@ void SM::DoComputation(std::pair<trace_op *, uint64_t> instrPair) {
 
       // Write back
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        if (!warps_[warp_id].active_mask[tid]) { continue; }
+
+        warps_[warp_id].rf_[instr->dest_reg].register_values_[tid] = result[tid];
+      }
+
+      break;
+    }
+    case SUB : {
+      assert(source_values.size() == 2);
+      std::vector<Value> result(THREADSPERWARP);
+
+      /*
+          Cast and do the subtraction
+      */
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        if (!warps_[warp_id].active_mask[tid]) { continue; }
+
+        Value a = source_values[0][tid];
+        Value b = source_values[1][tid];
+
+        result[tid] = convertAndApplyBinop(instr, a, b, 
+          [](auto v_a, auto v_b) {
+            return v_a - v_b;
+          }
+        );
+      }
+
+      // Write back
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        if (!warps_[warp_id].active_mask[tid]) { continue; }
+
+        warps_[warp_id].rf_[instr->dest_reg].register_values_[tid] = result[tid];
+      }
+
+      break;
+    }
+    case SHR : {
+      assert(source_values.size() == 2);
+      std::vector<Value> result(THREADSPERWARP);
+
+      /*
+          Cast and do the shift
+      */
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        if (!warps_[warp_id].active_mask[tid]) { continue; }
+
+        Value a = source_values[0][tid];
+        Value b = source_values[1][tid];
+
+        /*
+          TODO: Might be good to refactor into a "convertAndApplyIntegerBinop"
+          function.
+        */
+
+        result[tid] = std::visit(
+            [b, instr](auto &v_a) -> Value {
+              return std::visit(
+                  [instr, v_a](auto &v_b) -> Value {
+                    switch (instr->width) {
+                    case S32: {
+                      return static_cast<int32_t>(v_a) >>
+                             static_cast<int32_t>(v_b);
+                    }
+                    case S64: {
+                      return static_cast<int64_t>(v_a) >>
+                             static_cast<int64_t>(v_b);
+                    }
+                    case U32 : {
+                      return static_cast<uint32_t>(v_a) >>
+                             static_cast<uint32_t>(v_b);
+                    }
+                    default: {
+                      throw std::runtime_error("Unsupported binop width");
+                    }
+                    }
+                  },
+                  b);
+            },
+            a);
+      }
+
+      // Write back
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        if (!warps_[warp_id].active_mask[tid]) { continue; }
+
         warps_[warp_id].rf_[instr->dest_reg].register_values_[tid] = result[tid];
       }
 
@@ -782,6 +856,8 @@ void SM::DoComputation(std::pair<trace_op *, uint64_t> instrPair) {
       std::vector<Value> result(THREADSPERWARP);
 
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        if (!warps_[warp_id].active_mask[tid]) { continue; }
+
         Value a = source_values[0][tid];
         Value b = source_values[1][tid];
 
@@ -796,6 +872,25 @@ void SM::DoComputation(std::pair<trace_op *, uint64_t> instrPair) {
 
             break;
           }
+          case SETP_LT : {
+
+            result[tid] = convertAndApplyBinop(instr, a, b,
+                [](auto v_a, auto v_b) {
+                  return v_a < v_b;
+                }
+            );
+
+            break;
+          }
+          case SETP_GT : {
+            result[tid] = convertAndApplyBinop(instr, a, b,
+                [](auto v_a, auto v_b) {
+                  return v_a > v_b;
+                }
+            );
+
+            break;
+          }
           default : {
             throw std::runtime_error("Unsupported SETP variant");
           }
@@ -804,17 +899,44 @@ void SM::DoComputation(std::pair<trace_op *, uint64_t> instrPair) {
 
       // Write back
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        if (!warps_[warp_id].active_mask[tid]) { continue; }
+
         warps_[warp_id].rf_[instr->dest_reg].register_values_[tid] = result[tid];
       }
 
       break;
     }
     case BRA : {
-      /*
-          TODO: We don't implement control flow for now. For the SAXPY demo,
-          we just want to see that computation works properly for one warp with
-          no branches.
-      */
+      std::vector<bool> predicate(THREADSPERWARP);
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        predicate[tid] = warps_[warp_id].active_mask[tid] && (!warps_[warp_id].finished_mask[tid]);
+      }
+
+      // Check for a guard register
+      if (instr->guard_reg != NULL) {
+        operand_t pred_register_operand;
+        pred_register_operand.op_kind = REGISTER;
+        pred_register_operand.register_name = instr->guard_reg;
+
+        std::vector<Value> predicate_values = GetValueFromSource(&pred_register_operand, warp_id);
+        std::vector<bool> new_mask = predicate;
+        for (int tid = 0; tid < THREADSPERWARP; tid++) {
+          bool reg_value = extractBoolFromValue(predicate_values[tid]);
+          new_mask[tid] = reg_value && predicate[tid];
+        }
+
+        scheduler_->NotifyBranch(instr_idx, warp_id, new_mask);
+      } else {
+        // If there is no guard, then it ought to be a uniform branch
+        assert(instr->variant == BRA_UNI);
+        
+        // Scheduler should use whatever the current mask is
+        scheduler_->NotifyBranch(instr_idx, warp_id, std::nullopt);
+      }
+
+      // Clear the control hazard flag
+      warps_[warp_id].has_active_control_hazard = false;
+
       break;
     }
     case LD : {
@@ -822,12 +944,16 @@ void SM::DoComputation(std::pair<trace_op *, uint64_t> instrPair) {
       std::vector<Value> result(THREADSPERWARP);
 
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        if (!warps_[warp_id].active_mask[tid]) { continue; }
+
         Value memValue = source_values[0][tid];
         result[tid] = loadValue(instr, memValue);
       }
 
       // Write back
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        if (!warps_[warp_id].active_mask[tid]) { continue; }
+
         warps_[warp_id].rf_[instr->dest_reg].register_values_[tid] = result[tid];
       }
 
@@ -851,6 +977,8 @@ void SM::DoComputation(std::pair<trace_op *, uint64_t> instrPair) {
 
       // Do the actual store
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        if (!warps_[warp_id].active_mask[tid]) { continue; }
+
         Value destValue = destination_addresses[tid];
         Value srcValue = source_values[0][tid];
         storeValue(instr, destValue, srcValue);
@@ -864,7 +992,11 @@ void SM::DoComputation(std::pair<trace_op *, uint64_t> instrPair) {
       break;
     }
     case RET : {
-      // Do nothing
+      scheduler_->NotifyBranch(instr_idx, warp_id, std::nullopt);
+
+      // Clear control hazard
+      warps_[warp_id].has_active_control_hazard = false;
+
       break;
     }
     default : {

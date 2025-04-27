@@ -56,6 +56,13 @@ class Scheduler {
         std::unordered_map<int, std::string> warp_current_bb_;
 
         /*
+            Track active mask for each warp
+
+            warp_id : int -> lane mask : vector<bool>
+        */
+        std::unordered_map<int, std::vector<bool>> warp_active_masks_;
+
+        /*
             Also track a reconvergence stack for each warp
 
             warp id -> stack

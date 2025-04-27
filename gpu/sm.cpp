@@ -123,7 +123,7 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
 
       // Lane mask is assumed to be 100% active initially
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
-        currWarp->active_mask[tid] = true;
+        // currWarp->active_mask[tid] = true;
         currWarp->finished_mask[tid] = false;
       }
 
@@ -650,7 +650,7 @@ void SM::DoComputation(sm_instruction_t *sm_instr) {
 
   std::cout << "SM::DoComputation(" << op_to_string(instr->op) << ") ";
   for (int tid = 0; tid < THREADSPERWARP; tid++) {
-    std::cout << warps_[warp_id].active_mask[tid];
+    std::cout << sm_instr->active_mask[tid];
   }
 
   std::cout << std::endl;
@@ -681,14 +681,14 @@ void SM::DoComputation(sm_instruction_t *sm_instr) {
       assert(instr->width != OP_WIDTH_NONE);
 
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
-        if (!warps_[warp_id].active_mask[tid]) { continue; }
+        if (!sm_instr->active_mask[tid]) { continue; }
 
         result[tid] = convertValue(source_values[0][tid], instr->width);
       }
 
       // Write back result
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
-        if (!warps_[warp_id].active_mask[tid]) { continue; }
+        if (!sm_instr->active_mask[tid]) { continue; }
         warps_[warp_id].rf_[instr->dest_reg].register_values_[tid] = result[tid];
       }
 
@@ -702,7 +702,7 @@ void SM::DoComputation(sm_instruction_t *sm_instr) {
         Cast the two operands to the desired width
       */
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
-        if (!warps_[warp_id].active_mask[tid]) { continue; }
+        if (!sm_instr->active_mask[tid]) { continue; }
 
         Value a = source_values[0][tid];
         Value b = source_values[1][tid];
@@ -733,7 +733,7 @@ void SM::DoComputation(sm_instruction_t *sm_instr) {
 
       // Write back
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
-        if (!warps_[warp_id].active_mask[tid]) { continue; }
+        if (!sm_instr->active_mask[tid]) { continue; }
 
         warps_[warp_id].rf_[instr->dest_reg].register_values_[tid] = result[tid];
       }
@@ -748,7 +748,7 @@ void SM::DoComputation(sm_instruction_t *sm_instr) {
           Cast and do the add
       */
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
-        if (!warps_[warp_id].active_mask[tid]) { continue; }
+        if (!sm_instr->active_mask[tid]) { continue; }
 
         Value a = source_values[0][tid];
         Value b = source_values[1][tid];
@@ -762,7 +762,7 @@ void SM::DoComputation(sm_instruction_t *sm_instr) {
 
       // Write back
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
-        if (!warps_[warp_id].active_mask[tid]) { continue; }
+        if (!sm_instr->active_mask[tid]) { continue; }
 
         warps_[warp_id].rf_[instr->dest_reg].register_values_[tid] = result[tid];
       }
@@ -777,7 +777,7 @@ void SM::DoComputation(sm_instruction_t *sm_instr) {
           Cast and do the subtraction
       */
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
-        if (!warps_[warp_id].active_mask[tid]) { continue; }
+        if (!sm_instr->active_mask[tid]) { continue; }
 
         Value a = source_values[0][tid];
         Value b = source_values[1][tid];
@@ -791,7 +791,7 @@ void SM::DoComputation(sm_instruction_t *sm_instr) {
 
       // Write back
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
-        if (!warps_[warp_id].active_mask[tid]) { continue; }
+        if (!sm_instr->active_mask[tid]) { continue; }
 
         warps_[warp_id].rf_[instr->dest_reg].register_values_[tid] = result[tid];
       }
@@ -806,7 +806,7 @@ void SM::DoComputation(sm_instruction_t *sm_instr) {
           Cast and do the shift
       */
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
-        if (!warps_[warp_id].active_mask[tid]) { continue; }
+        if (!sm_instr->active_mask[tid]) { continue; }
 
         Value a = source_values[0][tid];
         Value b = source_values[1][tid];
@@ -845,7 +845,7 @@ void SM::DoComputation(sm_instruction_t *sm_instr) {
 
       // Write back
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
-        if (!warps_[warp_id].active_mask[tid]) { continue; }
+        if (!sm_instr->active_mask[tid]) { continue; }
 
         warps_[warp_id].rf_[instr->dest_reg].register_values_[tid] = result[tid];
       }
@@ -860,7 +860,7 @@ void SM::DoComputation(sm_instruction_t *sm_instr) {
       std::vector<Value> result(THREADSPERWARP);
 
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
-        if (!warps_[warp_id].active_mask[tid]) { continue; }
+        if (!sm_instr->active_mask[tid]) { continue; }
 
         Value a = source_values[0][tid];
         Value b = source_values[1][tid];
@@ -903,7 +903,7 @@ void SM::DoComputation(sm_instruction_t *sm_instr) {
 
       // Write back
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
-        if (!warps_[warp_id].active_mask[tid]) { continue; }
+        if (!sm_instr->active_mask[tid]) { continue; }
 
         warps_[warp_id].rf_[instr->dest_reg].register_values_[tid] = result[tid];
       }
@@ -913,7 +913,7 @@ void SM::DoComputation(sm_instruction_t *sm_instr) {
     case BRA : {
       std::vector<bool> predicate(THREADSPERWARP);
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
-        predicate[tid] = warps_[warp_id].active_mask[tid] && (!warps_[warp_id].finished_mask[tid]);
+        predicate[tid] = sm_instr->active_mask[tid] && (!warps_[warp_id].finished_mask[tid]);
       }
 
       // Check for a guard register
@@ -948,7 +948,7 @@ void SM::DoComputation(sm_instruction_t *sm_instr) {
       std::vector<Value> result(THREADSPERWARP);
 
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
-        if (!warps_[warp_id].active_mask[tid]) { continue; }
+        if (!sm_instr->active_mask[tid]) { continue; }
 
         Value memValue = source_values[0][tid];
         result[tid] = loadValue(instr, memValue);
@@ -956,7 +956,7 @@ void SM::DoComputation(sm_instruction_t *sm_instr) {
 
       // Write back
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
-        if (!warps_[warp_id].active_mask[tid]) { continue; }
+        if (!sm_instr->active_mask[tid]) { continue; }
 
         warps_[warp_id].rf_[instr->dest_reg].register_values_[tid] = result[tid];
       }
@@ -981,7 +981,7 @@ void SM::DoComputation(sm_instruction_t *sm_instr) {
 
       // Do the actual store
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
-        if (!warps_[warp_id].active_mask[tid]) { continue; }
+        if (!sm_instr->active_mask[tid]) { continue; }
 
         Value destValue = destination_addresses[tid];
         Value srcValue = source_values[0][tid];

@@ -60,6 +60,7 @@ typedef struct _sm_instruction_t {
   int instruction_idx; /* Index in the original trace file */
   int warp_id; /* Which warp does this instruction belong to? */
   trace_op *t_op; /* The actual instruction */
+  std::vector<bool> active_mask;
 } sm_instruction_t;
 
 /** @brief A warp can either be running, runnable, stalled, or not initialized .
@@ -79,7 +80,7 @@ typedef struct warp {
   std::unordered_map<std::string, Register> rf_;
 
   // Current lane mask
-  std::array<bool, THREADSPERWARP> active_mask;
+  // std::array<bool, THREADSPERWARP> active_mask;
 
   std::array<bool, THREADSPERWARP> finished_mask;
 

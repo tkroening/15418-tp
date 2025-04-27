@@ -37,6 +37,7 @@ void Scheduler::InitWarp(int warp_id) {
     
     // All active to begin with
     entry.ActiveMask = std::vector<bool>(THREADSPERWARP, true);
+    warp_active_masks_[warp_id] = std::vector<bool>(THREADSPERWARP, true);
 
     // Push to stack
     warp_reconv_stacks_[warp_id] = std::stack<reconv_stack_entry_t>();
@@ -131,17 +132,20 @@ sm_instruction_t *Scheduler::GetNextInstruction() {
         std::cout << "\tNew BB: " << top_entry.NextPC << std::endl;
 
         bool hasActive = false;
+        std::vector<bool> new_mask(THREADSPERWARP);
+
         std::cout << "\tNew mask would be: ";
         for (int tid = 0; tid < THREADSPERWARP; tid++) {
           bool val =
               top_entry.ActiveMask[tid] && (!warp_ptr->finished_mask[tid]);
-          warp_ptr->active_mask[tid] = val;
+          new_mask[tid] = val;
           hasActive = hasActive || val;
           std::cout << val;
         }
         std::cout << std::endl;
 
         if (hasActive) {
+          warp_active_masks_[warp_id] = new_mask;
           return GetNextInstruction();
         }
       }
@@ -183,7 +187,6 @@ sm_instruction_t *Scheduler::GetNextInstruction() {
 
         std::pair<trace_op *, uint64_t> returnPair;
 
-        // TODO: Was this the intended instruction (Ethan: YES)
         returnPair.first = warp_next_instr;
         returnPair.second = selectedWarp;
 
@@ -191,6 +194,7 @@ sm_instruction_t *Scheduler::GetNextInstruction() {
         new_sm_instruction->instruction_idx = current_instruction_id;
         new_sm_instruction->warp_id = warp_id;
         new_sm_instruction->t_op = warp_next_instr;
+        new_sm_instruction->active_mask = warp_active_masks_[warp_id];
 
         // TODO: put this in wb stage
         // this means that schedule should happen in fetch_falling and
@@ -226,7 +230,7 @@ void Scheduler::NotifyBranch(int instruction_idx, int warp_id, std::optional<std
     predicate = std::vector<bool>(THREADSPERWARP);
     
     for (int tid = 0; tid < THREADSPERWARP; tid++) {
-      (*predicate)[tid] = warp_ptr->active_mask[tid] && (!warp_ptr->finished_mask[tid]);
+      (*predicate)[tid] = warp_active_masks_[warp_id][tid] && (!warp_ptr->finished_mask[tid]);
     }
   }
 
@@ -326,7 +330,7 @@ void Scheduler::NotifyBranch(int instruction_idx, int warp_id, std::optional<std
 
         bool atLeastOneThread = false;
         for (int tid = 0; tid < THREADSPERWARP; tid++) {
-          bool val = (!predicate.value()[tid]) && warp_ptr->active_mask[tid] && (!warp_ptr->finished_mask[tid]);
+          bool val = (!predicate.value()[tid]) && warp_active_masks_[warp_id][tid] && (!warp_ptr->finished_mask[tid]);
           new_mask[tid] = val;
 
           atLeastOneThread |= val;
@@ -378,7 +382,7 @@ void Scheduler::NotifyBranch(int instruction_idx, int warp_id, std::optional<std
     for (int tid = 0; tid < THREADSPERWARP; tid++) {
       bool val =
           new_top_entry.ActiveMask[tid] && (!warp_ptr->finished_mask[tid]);
-      warp_ptr->active_mask[tid] = val;
+      warp_active_masks_[warp_id][tid] = val;
       hasActive = hasActive || val;
     }
 
@@ -390,7 +394,7 @@ void Scheduler::NotifyBranch(int instruction_idx, int warp_id, std::optional<std
 
       std::cout << "\tNew mask: ";
       for (int tid = 0; tid < THREADSPERWARP; tid++) {
-        std::cout << warp_ptr->active_mask[tid];
+        std::cout << warp_active_masks_[warp_id][tid];
       }
       std::cout << std::endl;
 

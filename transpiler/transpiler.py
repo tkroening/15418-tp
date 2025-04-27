@@ -292,8 +292,8 @@ def processLine(translations : list[Translation], outputFile, line : str, curren
         raise Exception("No translation matches line: " + line)
 
 if __name__ == "__main__":
-    ptxFile=open("ptx_binsearch.txt","r")
-    outputFile=open("trace_binsearch.txt","w+")
+    ptxFile=open("ptx_binsearch_hard.txt","r")
+    outputFile=open("trace_binsearch_hard.txt","w+")
 
     lines=ptxFile.readlines()
 

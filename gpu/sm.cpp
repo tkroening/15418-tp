@@ -30,6 +30,10 @@ std::string op_to_string(op_type op_t) {
   }
 }
 
+Value SM::GetRegisterValue(int warp_id, const char *reg_name, int id) {
+  return warps_[warp_id].rf_[reg_name].register_values_[id];
+}
+
 // Constructor
 SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
        trace_reader *tr, int activeWarps, int smid)

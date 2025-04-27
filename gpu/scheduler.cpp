@@ -95,46 +95,54 @@ sm_instruction_t *Scheduler::GetNextInstruction() {
 
       if (S.empty()) {
         warp_ptr->warpState = FINISHED;
-        std::cout << "Warp ID " << warp_id << " is finished" << std::endl;
+        std::cout << "\tWarp ID " << warp_id << " is finished" << std::endl;
         continue;
       }
 
       CFG *cfg = parent_sm_->GetCFG();
       auto new_bb = cfg->GetLineBasicBlockName(current_instruction_id);
 
+      std::cout << "\tCurr BB: " << new_bb << std::endl;
+
       assert(!S.empty());
       // assert(S.top().RetReconvPC.has_value());
 
-      if (S.top().RetReconvPC.has_value() && S.top().RetReconvPC.value() == new_bb) {
+      while (S.top().RetReconvPC.has_value() &&
+             S.top().RetReconvPC.value() == new_bb &&
+             current_instruction_id == cfg->GetBasicBlockLineNo(new_bb)) {
         std::string old_reconv_point = S.top().RetReconvPC.value();
-        while (true) {
-          if (S.empty()) {
-            warp_ptr->warpState = FINISHED;
-            return GetNextInstruction();
-          }
 
-          S.pop();
-          assert(!S.empty());
+        std::cout << "\tHit reconvergence point. Popping from stack" << std::endl;
+        S.pop();
 
-          // Go to nextpc on stack, and replace active mask
-          auto top_entry = S.top();
-          // S.pop();
+        if (S.empty()) {
+          warp_ptr->warpState = FINISHED;
+          return GetNextInstruction();
+        }
 
-          auto new_line_no = cfg->GetBasicBlockLineNo(top_entry.NextPC);
-          warp_current_instruction_[warp_id] = new_line_no;
-          warp_current_bb_[warp_id] = top_entry.NextPC;
+        // Go to nextpc on stack, and replace active mask
+        auto top_entry = S.top();
+        // S.pop();
 
-          bool hasActive = false;
-          for (int tid = 0; tid < THREADSPERWARP; tid++) {
-            bool val =
-                top_entry.ActiveMask[tid] && (!warp_ptr->finished_mask[tid]);
-            warp_ptr->active_mask[tid] = val;
-            hasActive = hasActive || val;
-          }
+        auto new_line_no = cfg->GetBasicBlockLineNo(top_entry.NextPC);
+        warp_current_instruction_[warp_id] = new_line_no;
+        warp_current_bb_[warp_id] = top_entry.NextPC;
+        
+        std::cout << "\tNew BB: " << top_entry.NextPC << std::endl;
 
-          if (hasActive) {
-            return GetNextInstruction();
-          }
+        bool hasActive = false;
+        std::cout << "\tNew mask would be: ";
+        for (int tid = 0; tid < THREADSPERWARP; tid++) {
+          bool val =
+              top_entry.ActiveMask[tid] && (!warp_ptr->finished_mask[tid]);
+          warp_ptr->active_mask[tid] = val;
+          hasActive = hasActive || val;
+          std::cout << val;
+        }
+        std::cout << std::endl;
+
+        if (hasActive) {
+          return GetNextInstruction();
         }
       }
 
@@ -251,11 +259,28 @@ void Scheduler::NotifyBranch(int instruction_idx, int warp_id, std::optional<std
       std::cout << "All finished at S.size() = " << S.size() << std::endl;
       return;
     }
+  } else if (instr->variant == BRA_UNI) {
+    // For our purposes, BRA_UNI should never be guarded
+    assert(instr->guard_reg == NULL);
+    assert(instr->dest_reg != NULL);
+
+    std::string new_bb = instr->dest_reg;
+    auto new_line_no = cfg->GetBasicBlockLineNo(new_bb);
+    warp_current_instruction_[warp_id] = new_line_no;
+    
+    std::cout << "\tWarp " << warp_id << " UNIFORM BRANCH " << curr_bb << " (line "
+              << instruction_idx << ")"
+              << " -> " << new_bb << " (line " << new_line_no << ")"
+              << std::endl;
+
+    return;
   } else if (!successors.empty()) {
     S.pop();
     std::string reconv_point = cfg->GetIPDom(curr_bb);
     top_entry.NextPC = reconv_point;
     S.push(top_entry);
+
+    std::cout << "\tNew NextPC is " << top_entry.NextPC << std::endl;
 
     for (auto [pred_opt, succ_bb] : successors) {
       if (pred_opt.has_value()) {
@@ -280,6 +305,16 @@ void Scheduler::NotifyBranch(int instruction_idx, int warp_id, std::optional<std
 
         if (atLeastOneThread) {
           S.push(if_entry);
+
+          std::cout << "\tPushed new entry [Reconv="
+                    << if_entry.RetReconvPC.value()
+                    << ", NextPC=" << if_entry.NextPC << ", mask=";
+
+          for (int tid = 0; tid < THREADSPERWARP; tid++) {
+            std::cout << if_entry.ActiveMask[tid];
+          }
+
+          std::cout << "]" << std::endl;
         }
       } else {
         /*
@@ -304,6 +339,16 @@ void Scheduler::NotifyBranch(int instruction_idx, int warp_id, std::optional<std
 
         if (atLeastOneThread) {
           S.push(else_entry);
+
+          std::cout << "\tPushed new entry [Reconv="
+                    << else_entry.RetReconvPC.value()
+                    << ", NextPC=" << else_entry.NextPC << ", mask=";
+
+          for (int tid = 0; tid < THREADSPERWARP; tid++) {
+            std::cout << else_entry.ActiveMask[tid];
+          }
+
+          std::cout << "]" << std::endl;
         }
       }
     }
@@ -352,6 +397,7 @@ void Scheduler::NotifyBranch(int instruction_idx, int warp_id, std::optional<std
       warp_current_instruction_[warp_id] = new_line_no;
       return;
     } else {
+      std::cout << "\tBranch " << curr_bb << " -> " << next_bb << " would have no active threads. Popping from stack." << std::endl;
       S.pop();
     }
     // warp_current_bb_[warp_id] = next_bb;

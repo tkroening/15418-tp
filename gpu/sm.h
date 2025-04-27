@@ -115,64 +115,67 @@ public:
 
   std::vector<trace_op *> GetInstructions();
 
-private:
-  /** @brief The sm number, currently just doing 1 */
-  int smid_;
+  // For debugging in gdb
+  Value GetRegisterValue(int warp_id, const char *reg_name, int id);
 
-  /** @brief the number of warps in use */
-  int activeWarps_;
+  private:
+    /** @brief The sm number, currently just doing 1 */
+    int smid_;
 
-  /** @brief structure that stores all info about warps, similar to thread
-   * control block*/
-  std::array<warp_t, MAXWARPS> warps_;
+    /** @brief the number of warps in use */
+    int activeWarps_;
 
-  /** @brief Whether  a pending branch request. */
-  std::optional<uint64_t> pending_branch_;
+    /** @brief structure that stores all info about warps, similar to thread
+     * control block*/
+    std::array<warp_t, MAXWARPS> warps_;
 
-  /** @brief Function pointer for memOpCallback */
-  void (*memOpCallback_)(int, int64_t);
+    /** @brief Whether  a pending branch request. */
+    std::optional<uint64_t> pending_branch_;
 
-  /*
-      A copy of the instructions that make up the input program
-  */
-  std::vector<trace_op *> instructions_;
+    /** @brief Function pointer for memOpCallback */
+    void (*memOpCallback_)(int, int64_t);
 
-  Scheduler *scheduler_ {};
-  CFG *cfg_ {};
+    /*
+        A copy of the instructions that make up the input program
+    */
+    std::vector<trace_op *> instructions_;
 
-  /*
-      Various queues. Recall the classic five-stage pipeline:
-      Fetch -> Decode -> Execute -> Mem -> Write Back
-  */
+    Scheduler *scheduler_{};
+    CFG *cfg_{};
 
-  /** @brief The queue of instructions going into decode stage
-      produced by fetch and consumed by decode*/
-  std::queue<sm_instruction_t *>
-      fetch_decode_queue_; // should always have length 0 or 1;
+    /*
+        Various queues. Recall the classic five-stage pipeline:
+        Fetch -> Decode -> Execute -> Mem -> Write Back
+    */
 
-  /** @brief The queue of instructions going into execute stage
-       produced by deocde and consumed by execute*/
-  std::queue<sm_instruction_t *>
-      decode_execute_queue_; // should always have length 0 or 1;
+    /** @brief The queue of instructions going into decode stage
+        produced by fetch and consumed by decode*/
+    std::queue<sm_instruction_t *>
+        fetch_decode_queue_; // should always have length 0 or 1;
 
-  /** @brief The queue of instructions going into memory stage
-      produced by execute and consumed by memory*/
-  std::queue<sm_instruction_t *>
-      execute_mem_queue_; // should always have length 0 or 1;
+    /** @brief The queue of instructions going into execute stage
+         produced by deocde and consumed by execute*/
+    std::queue<sm_instruction_t *>
+        decode_execute_queue_; // should always have length 0 or 1;
 
-  /** @brief The queue of instructions going into write back stage
-     produced by memory and consumed by wb */
-  std::queue<sm_instruction_t *>
-      mem_wb_queue_; // should always have length 0 or 1;
+    /** @brief The queue of instructions going into memory stage
+        produced by execute and consumed by memory*/
+    std::queue<sm_instruction_t *>
+        execute_mem_queue_; // should always have length 0 or 1;
 
-  /*
-      "Computation" Methods
-  */
-  
-  // "Wide" - Returns value for every thread in the warp
-  std::vector<Value> GetValueFromSource(operand_t *src, uint64_t warp_id);
+    /** @brief The queue of instructions going into write back stage
+       produced by memory and consumed by wb */
+    std::queue<sm_instruction_t *>
+        mem_wb_queue_; // should always have length 0 or 1;
 
-  void DoComputation(sm_instruction_t *sm_instr);
-};
+    /*
+        "Computation" Methods
+    */
+
+    // "Wide" - Returns value for every thread in the warp
+    std::vector<Value> GetValueFromSource(operand_t * src, uint64_t warp_id);
+
+    void DoComputation(sm_instruction_t * sm_instr);
+  };
 
 #endif

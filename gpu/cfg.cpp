@@ -1,4 +1,6 @@
 #include "cfg.h"
+#include "common.h"
+#include "sm.h"
 #include "trace.h"
 #include <iostream>
 #include <queue>
@@ -14,7 +16,7 @@ CFG::CFG(std::vector<trace_op *> instructions) : instructions_(instructions) {
 }
 
 void CFG::BuildCFG() {
-    std::cout << std::endl << "CFG::BuildCFG()" << std::endl;
+    dbg_printf("CFG::BuildCFG()\n");
     int fresh_label = 0;
     std::optional<std::string> curr_label = std::nullopt;
     
@@ -108,17 +110,17 @@ void CFG::BuildCFG() {
 
         if (basic_block_name != curr_basic_block_name) {
           curr_basic_block_name = basic_block_name;
-          std::cout << "BASIC BLOCK: " << curr_basic_block_name << std::endl;
+          dbg_printf("BASIC BLOCK: %s\n", curr_basic_block_name.c_str());
 
           if (successors_.find(curr_basic_block_name) != successors_.end()) {
             for (auto [pred, successor] : successors_[curr_basic_block_name]) {
-              std::cout << "\tSuccessor: ";
+              dbg_printf("\tSuccessor: ");
 
               if (pred.has_value()) {
-                std::cout << *pred << " ";
+                dbg_printf("%s ", pred->c_str());
               }
 
-              std::cout << successor << std::endl;
+              dbg_printf("%s\n", successor.c_str());
             }
           }
         }
@@ -126,62 +128,62 @@ void CFG::BuildCFG() {
         trace_op *instr = instructions_[instruction_idx];
         switch (instr->op) {
         case LABEL: {
-            std::cout << "LABEL" << std::endl;
+            dbg_printf("LABEL\n");
             break;
         }
         case LDPARAM: {
-            std::cout << "LDPARAM" << std::endl;
+            dbg_printf("LDPARAM\n");
             break;
         }
         case MOV: {
-            std::cout << "MOV" << std::endl;
+            dbg_printf("MOV\n");
             break;
         }
         case MUL: {
-            std::cout << "MUL" << std::endl;
+            dbg_printf("MUL\n");
             break;
         }
         case SETP: {
-            std::cout << "SETP" << std::endl;
+            dbg_printf("SETP\n");
             break;
         }
         case BRA: {
-            std::cout << "BRA" << std::endl;
+            dbg_printf("BRA\n");
             break;
         }
         case CVTA: {
-            std::cout << "CVTA" << std::endl;
+            dbg_printf("CVTA\n");
             break;
         }
         case ADD: {
-            std::cout << "ADD" << std::endl;
+            dbg_printf("ADD\n");
             break;
         }
         case SUB: {
-            std::cout << "SUB" << std::endl;
+            dbg_printf("SUB\n");
             break;
         }
         case SHR: {
-            std::cout << "SHR" << std::endl;
+            dbg_printf("SHR\n");
             break;
         }
         case LD: {
-            std::cout << "LD" << std::endl;
+            dbg_printf("LD\n");
             break;
         }
         case ST: {
-            std::cout << "ST" << std::endl;
+            dbg_printf("ST\n");
             break;
         }
         case RET:
-            std::cout << "RET" << std::endl;
+            dbg_printf("RET\n");
             break;
         }
     }
 }
 
 void CFG::ComputePostDominators() {
-  std::cout << std::endl << "CFG::ComputePostDominators()" << std::endl;
+  dbg_printf("CFG::ComputePostDominators()\n");
   /*
       Implemented from pseudocode given in slides from UMich:
       https://web.eecs.umich.edu/~mahlke/courses/483f06/lectures/483L20.pdf
@@ -239,7 +241,7 @@ void CFG::ComputePostDominators() {
 
   while (change) {
     change = false;
-    std::cout << "Iteration " << iteration++ << std::endl;
+    dbg_printf("Iteration %d\n", iteration++);
 
     std::unordered_map<std::string, std::set<std::string>> tmp_pdom = pdom;
 
@@ -247,14 +249,14 @@ void CFG::ComputePostDominators() {
         if (basic_block_name == *exit_bb) {
             continue;
         }
-        std::cout << "\tBB: " << basic_block_name << std::endl;
+        dbg_printf("\tBB: %s\n", basic_block_name.c_str());
 
-        std::cout << "\t\tCurrent pdom[BB]: ";
+        dbg_printf("\t\tCurrent pdom[BB]: ");
         for (auto pd : pdom[basic_block_name]) {
-            std::cout << pd << " ";
+            dbg_printf("%s ", pd.c_str());
         }
 
-        std::cout << std::endl;
+        dbg_printf("\n");
 
         std::set<std::string> tmp_bb = {basic_block_name};
         std::vector<std::pair<std::optional<std::string>, std::string>> successors = {};
@@ -264,9 +266,9 @@ void CFG::ComputePostDominators() {
 
         bool first = true;
         std::set<std::string> intersect_successor_pdoms = {};
-        std::cout << "\t\tSuccessors:" << std::endl;
+        dbg_printf("\t\tSuccessors:\n");
         for (std::pair<std::optional<std::string>, std::string> p : successors) {
-            std::cout << "\t\t\t" << p.second << std::endl;
+            dbg_printf("\t\t\t%s\n", p.second.c_str());
             std::string successor_bb_name = p.second;
             if (first) {
                 intersect_successor_pdoms = pdom[successor_bb_name];
@@ -284,9 +286,9 @@ void CFG::ComputePostDominators() {
             intersect_successor_pdoms = tmp;
         }
 
-        std::cout << "\t\tNew Members:" << std::endl;
+        dbg_printf("\t\tNew Members: \n");
         for (auto pd : intersect_successor_pdoms) {
-            std::cout << "\t\t\t" << pd << std::endl;
+            dbg_printf("\t\t\t%s\n", pd.c_str());
             tmp_bb.insert(pd);
         }
 
@@ -302,19 +304,21 @@ void CFG::ComputePostDominators() {
   pdoms_ = pdom;
 
   // Debugging
-  std::cout << std::endl;
-  std::optional<std::string> curr_bb = std::nullopt;
-  for (int instr_idx = 0; instr_idx < instructions_.size(); instr_idx++) {
-    std::string bb_name = line_basic_block_names_[instr_idx];
-    if (!curr_bb.has_value() || bb_name != *curr_bb) {
+  if (CADSS_VERBOSE) {
+    std::cout << std::endl;
+    std::optional<std::string> curr_bb = std::nullopt;
+    for (int instr_idx = 0; instr_idx < instructions_.size(); instr_idx++) {
+      std::string bb_name = line_basic_block_names_[instr_idx];
+      if (!curr_bb.has_value() || bb_name != *curr_bb) {
         curr_bb = bb_name;
-    } else {
+      } else {
         continue;
-    }
+      }
 
-    std::cout << "BASIC BLOCK: " << bb_name << std::endl;
-    for (auto pd : pdom[bb_name]) {
+      std::cout << "BASIC BLOCK: " << bb_name << std::endl;
+      for (auto pd : pdom[bb_name]) {
         std::cout << "\tpdom: " << pd << std::endl;
+      }
     }
   }
 }
@@ -356,7 +360,10 @@ void CFG::ComputeImmediatePostDominator(std::string node_name) {
 }
 
 void CFG::ComputeImmediatePostDominators() {
-  std::cout << std::endl << "CFG::ComputeImmediatePostDominators()" << std::endl;
+  if (CADSS_VERBOSE) {
+    std::cout << std::endl
+              << "CFG::ComputeImmediatePostDominators()" << std::endl;
+  }
   /*
       An immediate post-dominator of a node is the first breadth-first
       successor of a node that post dominates it:
@@ -370,25 +377,27 @@ void CFG::ComputeImmediatePostDominators() {
   }
 
   // Debugging
-  std::cout << std::endl;
-  std::optional<std::string> curr_bb = std::nullopt;
-  for (int instr_idx = 0; instr_idx < instructions_.size(); instr_idx++) {
-    std::string bb_name = line_basic_block_names_[instr_idx];
-    if (!curr_bb.has_value() || bb_name != *curr_bb) {
-      curr_bb = bb_name;
-    } else {
-      continue;
-    }
-
-    std::cout << "BASIC BLOCK: " << bb_name << std::endl;
-    std::cout << "\tipdom: ";
-
-    if (ipdoms_.find(bb_name) != ipdoms_.end()) {
-        std::cout << ipdoms_[bb_name];
-    } else {
-        std::cout << "none";
-    }
-
+  if (CADSS_VERBOSE) {
     std::cout << std::endl;
+    std::optional<std::string> curr_bb = std::nullopt;
+    for (int instr_idx = 0; instr_idx < instructions_.size(); instr_idx++) {
+      std::string bb_name = line_basic_block_names_[instr_idx];
+      if (!curr_bb.has_value() || bb_name != *curr_bb) {
+        curr_bb = bb_name;
+      } else {
+        continue;
+      }
+
+      std::cout << "BASIC BLOCK: " << bb_name << std::endl;
+      std::cout << "\tipdom: ";
+
+      if (ipdoms_.find(bb_name) != ipdoms_.end()) {
+        std::cout << ipdoms_[bb_name];
+      } else {
+        std::cout << "none";
+      }
+
+      std::cout << std::endl;
+    }
   }
 }

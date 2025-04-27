@@ -135,8 +135,7 @@ extern "C" int tick(void) {
   // Pass along to the branch predictor and cache simulator that time ticked
   tickCount++;
 
-  std::cout << std::endl;
-  std::cout << "Tick: " << tickCount << std::endl;
+  dbg_printf("\nTick: %d\n", tickCount);
 
   if (tickCount == stallCount) {
     printf("Processor may be stalled.  Now at tick - %ld, last op at %ld\n",

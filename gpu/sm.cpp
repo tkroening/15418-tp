@@ -1,8 +1,8 @@
 #include "sm.h"
+#include "common.h"
 #include "trace.h"
 
 #include <cstdint>
-#include <functional>
 #include <iostream>
 #include <stdexcept>
 #include <stdio.h>
@@ -11,6 +11,9 @@
 
 #include "cfg.h"
 #include "scheduler.h"
+
+#include <stdio.h>
+#include <stdarg.h>
 
 std::string op_to_string(op_type op_t) {
   switch (op_t) {
@@ -30,8 +33,24 @@ std::string op_to_string(op_type op_t) {
   }
 }
 
+/*
+    Helpers for debugging
+*/
 Value SM::GetRegisterValue(int warp_id, const char *reg_name, int id) {
   return warps_[warp_id].rf_[reg_name].register_values_[id];
+}
+
+void dbg_printf_helper(const char *fmt, va_list args) {
+  if (CADSS_VERBOSE) {
+      vprintf(fmt, args);
+  }
+}
+
+void dbg_printf(const char *fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  dbg_printf_helper(fmt, args);
+  va_end(args);
 }
 
 // Constructor
@@ -55,7 +74,8 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
       // Initialize the register file to have all registers be ready.
       for (int reg_idx = 0; reg_idx < tr->num_registers; reg_idx++) {
         std::string register_name = tr->register_names[reg_idx];
-        std::cout << "Register name: " << register_name << std::endl;
+        dbg_printf("Register name %s\n", register_name.c_str());
+
         currWarp->rf_[register_name] = Register();
         currWarp->rf_[register_name].register_name_ = register_name;
         currWarp->rf_[register_name].ready_ = true;
@@ -74,21 +94,23 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
           continue;
         }
 
-        std::cout << "Register: " << tr->register_names[reg_idx] << std::endl;
+        dbg_printf("Register %s\n", tr->register_names[reg_idx]);
 
         if (param->is_pointer) {
           // TODO: The reinterpret cast seems very dangerous
-          std::cout << "\tExtracted pointer param " << param->param_pointer << std::endl;
+          dbg_printf("\tExtracted pointer param %p\n", param->param_pointer);
           register_values = std::vector<Value>(THREADSPERWARP, reinterpret_cast<uint64_t>(param->param_pointer));
         } else {
           switch (param->primitive_type) {
             case TR_PRIMITIVE_INT : {
-              std::cout << "\tExtracted param " << param->param_int << std::endl;
+              dbg_printf("\tExtracted param %d\n",
+                         param->param_int);
               register_values = std::vector<Value>(THREADSPERWARP, param->param_int);
               break;
             }
             case TR_PRIMITIVE_FLOAT : {
-              std::cout << "\tExtracted param " << param->param_float << std::endl;
+              dbg_printf("\tExtracted param %f\n",
+                         param->param_float);
               register_values = std::vector<Value>(THREADSPERWARP, param->param_float);
               break;
             }
@@ -99,8 +121,6 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
         for (int tid = 0; tid < THREADSPERWARP; tid++) {
           currWarp->rf_[register_name].register_values_[tid] = register_values[tid];
         }
-
-
       }
 
       /*
@@ -152,8 +172,7 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
     op = tr_->getNextOp(0);
     // if we reach end of trace file we break out of loop
     if (op == NULL) {
-      std::cout << "Finished reading tracefile (hit NULL). Read "
-                << instructionCount_ << " instructions." << std::endl;
+      dbg_printf("Finished reading tracefile. Read %d instructions\n", instructionCount_);
       break;
     } else {
       instructionCount_++;
@@ -205,10 +224,7 @@ bool SM::Fetch() {
   trace_op *currentInstruction = sm_instr->t_op;
   uint64_t warpNumber = sm_instr->warp_id;
 
-  std::cout << "Current Instruction"
-            << " (Warp #" << warpNumber << ")"
-            << ": " << currentInstruction << " "
-            << "[" << op_to_string(currentInstruction->op) << "]" << std::endl;
+  dbg_printf("Current Instruction (Warp #%d): %p [%s]\n", warpNumber, currentInstruction, op_to_string(currentInstruction->op).c_str());
 
   warp_t *scheduledWarp = &(warps_[warpNumber]);
 
@@ -648,12 +664,11 @@ void SM::DoComputation(sm_instruction_t *sm_instr) {
   auto instr_idx = sm_instr->instruction_idx;
   auto warp_id = sm_instr->warp_id;
 
-  std::cout << "SM::DoComputation(" << op_to_string(instr->op) << ") ";
+  dbg_printf("SM::DoComputation(%s) ", op_to_string(instr->op).c_str());
   for (int tid = 0; tid < THREADSPERWARP; tid++) {
-    std::cout << sm_instr->active_mask[tid];
+    dbg_printf("%d", sm_instr->active_mask[tid] ? 1 : 0);
   }
-
-  std::cout << std::endl;
+  dbg_printf("\n");
 
 
   // Want to fetch all of the "source" values

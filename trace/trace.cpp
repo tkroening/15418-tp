@@ -4,6 +4,7 @@
 #include <vector>
 
 extern "C" {
+    #include "common.h"
     #include "trace.h"
 }
 
@@ -20,7 +21,6 @@ extern "C" trace_op *getNextOp(int);
 extern "C" param_t *getParamValue(char *param_name);
 
 TraceReader::TraceReader(trace_sim_args *tsa) : trace_reader_state_(TR_STATE_READING_PARAMS) {
-    std::cout << "Trace Reader constructor" << std::endl;
 }
 
 param_t getPrimitiveParamFromString(TraceReaderPrimitiveType primitive_type, std::string param_str) {
@@ -123,7 +123,9 @@ void TraceReader::ReadParamLine(std::string line) {
         throw std::runtime_error("Unsupported parameter format: " + line);
     }
 
-    std::cout << "Inserting param name: " << param_name << std::endl;
+    if (CADSS_VERBOSE) {
+        std::cout << "Inserting param name: " << param_name << std::endl;
+    }
     register_names_.insert(param_name);
 }
 
@@ -171,7 +173,9 @@ void parseOperatorInfo(trace_op *new_trace_op, std::string operator_info_string)
     std::stringstream info_ss = std::stringstream(operator_info_string);
     std::string temp;
     while (std::getline(info_ss, temp, '.')) {
-        std::cout << "info temp: " << temp << std::endl;
+        if (CADSS_VERBOSE) {
+          std::cout << "info temp: " << temp << std::endl;
+        }
         if (op_str.empty()) {
             op_str = temp;
             continue;
@@ -305,11 +309,16 @@ operand_t parseOperand(std::set<std::string> &register_names, std::string operan
 
     // Treat as register name
     if (!operand_str.starts_with("%")) {
-        std::cout << "WARNING: Interpreted '" << operand_str << "' as register name" << std::endl;
+        if (CADSS_VERBOSE) {
+          std::cout << "WARNING: Interpreted '" << operand_str
+                    << "' as register name" << std::endl;
+        }
     }
 
     // Log register name
-    std::cout << "Logging register name " << operand_str << std::endl;
+    if (CADSS_VERBOSE) {
+      std::cout << "Logging register name " << operand_str << std::endl;
+    }
     register_names.insert(operand_str);
 
     return {
@@ -325,14 +334,18 @@ operand_t parseOperand(std::set<std::string> &register_names, std::string operan
     operator.mod1.mod2 <...operands>
 */
 void parseInstruction(std::set<std::string> &register_names, trace_op *new_trace_op, std::string line) {
-    std::cout << std::endl << "parseInstruction(" << line << ")" << std::endl;
+    if (CADSS_VERBOSE) {
+        std::cout << std::endl << "parseInstruction(" << line << ")" << std::endl;
+    }
     std::string operator_info_string; // operator.mod1.mod2 -> e.g. st.global.f32
     std::vector<std::string> operand_strings;
 
     std::stringstream whole_ss = std::stringstream(line);
     std::string temp;
     while (std::getline(whole_ss, temp, ' ')) {
-        std::cout << "temp:" << temp << std::endl;
+        if (CADSS_VERBOSE) {
+          std::cout << "temp: " << temp << std::endl;
+        }
         if (operator_info_string.empty()) {
             operator_info_string = temp;
             continue;
@@ -442,7 +455,9 @@ void TraceReader::ReadPTXLine(std::string line) {
         */
         new_trace_op->op = LABEL;
         new_trace_op->dest_reg = make_char_array(line.substr(0, line.size() - 1));
-        std::cout << "New dest reg: " << new_trace_op->dest_reg << std::endl;
+        if (CADSS_VERBOSE) {
+            std::cout << "New dest reg: " << new_trace_op->dest_reg << std::endl;
+        }
 
         trace_ops_.push_back(new_trace_op);
         return;
@@ -469,7 +484,9 @@ bool lineEmpty(std::string line) {
 
 void TraceReader::ReadLine(std::string line) {
     if (lineEmpty(line)) {
-        std::cout << "Line was empty: " << line << std::endl;
+        if (CADSS_VERBOSE) {
+          std::cout << "Line was empty: " << line << std::endl;
+        }
         return;
     }
 

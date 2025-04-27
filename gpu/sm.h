@@ -23,6 +23,9 @@ class Scheduler;
 // TODO: This is a placeholder value for REGISTER_COUNT. Replace this!
 #define REGISTER_COUNT 18
 
+// Debug Helper
+void dbg_printf(const char *fmt, ...);
+
 /*
     TODO: Hardcoded to 1 to implement control flow. Replace this!
 */

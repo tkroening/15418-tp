@@ -30,6 +30,9 @@ std::string op_to_string(op_type op_t) {
     case LD: { return "LD"; }
     case ST: { return "ST"; }
     case RET: { return "RET"; }
+    case AND : { return "AND"; }
+    case XOR : { return "XOR"; }
+    case NOT : { return "NOT"; }
   }
 }
 
@@ -224,7 +227,8 @@ bool SM::Fetch() {
   trace_op *currentInstruction = sm_instr->t_op;
   uint64_t warpNumber = sm_instr->warp_id;
 
-  dbg_printf("Current Instruction (Warp #%d): %p [%s]\n", warpNumber, currentInstruction, op_to_string(currentInstruction->op).c_str());
+  std::string op_str = op_to_string(currentInstruction->op);
+  dbg_printf("Current Instruction (Warp #%d): %p [%s]\n", warpNumber, currentInstruction, op_str.c_str());
 
   warp_t *scheduledWarp = &(warps_[warpNumber]);
 
@@ -487,7 +491,10 @@ Value convertValue(Value oldValue, op_width targetSize) {
       case S64 : {
         return static_cast<int64_t>(v);
       }
-      case OP_WIDTH_NONE : {
+      case PRED : {
+        return static_cast<bool>(v);
+      }
+      default : {
         throw std::runtime_error("Unsupported conversion width");
       }
     }
@@ -527,6 +534,22 @@ Value convertAndApplyBinop(trace_op *instr, Value a, Value b, BinOp binop) {
                   return binop(
                     static_cast<float>(v_a),
                     static_cast<float>(v_b)
+                  );
+                }
+                /*
+                    TODO: Is it correct to treat B32 as U32?
+                */
+                case U32 :
+                case B32 : {
+                  return binop(
+                    static_cast<uint32_t>(v_a),
+                    static_cast<uint32_t>(v_b)
+                  );
+                }
+                case PRED : {
+                  return binop(
+                    static_cast<bool>(v_a),
+                    static_cast<bool>(v_b)
                   );
                 }
                 default : {
@@ -667,8 +690,10 @@ void SM::DoComputation(sm_instruction_t *sm_instr) {
   dbg_printf("SM::DoComputation(%s) ", op_to_string(instr->op).c_str());
   for (int tid = 0; tid < THREADSPERWARP; tid++) {
     dbg_printf("%d", sm_instr->active_mask[tid] ? 1 : 0);
+    std::cout << sm_instr->active_mask[tid];
   }
   dbg_printf("\n");
+  std::cout << std::endl;
 
 
   // Want to fetch all of the "source" values
@@ -910,6 +935,24 @@ void SM::DoComputation(sm_instruction_t *sm_instr) {
 
             break;
           }
+          case SETP_EQ : {
+              result[tid] = convertAndApplyBinop(instr, a, b, 
+                  [](auto v_a, auto v_b) {
+                    return v_a == v_b;
+                  }
+              );
+
+              break;
+          }
+          case SETP_NE : {
+            result[tid] = convertAndApplyBinop(instr, a, b,
+                [](auto v_a, auto v_b) {
+                  return v_a != v_b;
+                }
+             );
+
+            break;
+          }
           default : {
             throw std::runtime_error("Unsupported SETP variant");
           }
@@ -1015,6 +1058,157 @@ void SM::DoComputation(sm_instruction_t *sm_instr) {
 
       // Clear control hazard
       warps_[warp_id].has_active_control_hazard = false;
+
+      break;
+    }
+    case AND : {
+      assert(source_values.size() == 2);
+      std::vector<Value> result(THREADSPERWARP);
+
+      /*
+          Cast and do the and
+      */
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        if (!sm_instr->active_mask[tid]) { continue; }
+
+        Value a = source_values[0][tid];
+        Value b = source_values[1][tid];
+
+        result[tid] = std::visit(
+            [b, instr](auto &v_a) -> Value {
+              return std::visit(
+                  [instr, v_a](auto &v_b) -> Value {
+                    switch (instr->width) {
+                    case S32: {
+                      return static_cast<int32_t>(v_a) &
+                             static_cast<int32_t>(v_b);
+                    }
+                    case S64: {
+                      return static_cast<int64_t>(v_a) &
+                             static_cast<int64_t>(v_b);
+                    }
+                    /*
+                      TODO: is it safe to treat B32 as U32?
+                    */
+                    case U32 :
+                    case B32 : {
+                      return static_cast<uint32_t>(v_a) &
+                             static_cast<uint32_t>(v_b);
+                    }
+                    default: {
+                      throw std::runtime_error("Unsupported binop width");
+                    }
+                    }
+                  },
+                  b);
+            },
+            a);
+
+      }
+
+      // Write back
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        if (!sm_instr->active_mask[tid]) { continue; }
+
+        warps_[warp_id].rf_[instr->dest_reg].register_values_[tid] = result[tid];
+      }
+
+      break;
+    }
+    case XOR : {
+      assert(source_values.size() == 2);
+      std::vector<Value> result(THREADSPERWARP);
+
+      /*
+          Cast and do the xor
+      */
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        if (!sm_instr->active_mask[tid]) { continue; }
+
+        Value a = source_values[0][tid];
+        Value b = source_values[1][tid];
+
+        result[tid] = std::visit(
+            [b, instr](auto &v_a) -> Value {
+              return std::visit(
+                  [instr, v_a](auto &v_b) -> Value {
+                    switch (instr->width) {
+                    case S32: {
+                      return static_cast<int32_t>(v_a) ^
+                             static_cast<int32_t>(v_b);
+                    }
+                    case S64: {
+                      return static_cast<int64_t>(v_a) ^
+                             static_cast<int64_t>(v_b);
+                    }
+                    /*
+                      TODO: is it safe to treat B32 as U32?
+                    */
+                    case U32 :
+                    case B32 : {
+                      return static_cast<uint32_t>(v_a) ^
+                             static_cast<uint32_t>(v_b);
+                    }
+                    case PRED : {
+                      return static_cast<bool>(v_a) ^ static_cast<bool>(v_b);
+                    }
+                    default: {
+                      throw std::runtime_error("Unsupported binop width");
+                    }
+                    }
+                  },
+                  b);
+            },
+            a);
+
+      }
+
+      // Write back
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        if (!sm_instr->active_mask[tid]) { continue; }
+
+        warps_[warp_id].rf_[instr->dest_reg].register_values_[tid] = result[tid];
+      }
+
+      break;
+    }
+    case NOT : {
+      assert(source_values.size() == 1);
+      std::vector<Value> result(THREADSPERWARP);
+
+      /*
+          Cast and do the not
+      */
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        if (!sm_instr->active_mask[tid]) {
+          continue;
+        }
+
+        Value a = source_values[0][tid];
+
+        result[tid] = std::visit(
+            [instr](auto &v_a) -> Value {
+              switch (instr->width) {
+              case PRED: {
+                return !(static_cast<bool>(v_a));
+              }
+              default: {
+                throw std::runtime_error("Unsupported binop width");
+              }
+              }
+            },
+            a);
+      }
+
+      // Write back
+      for (int tid = 0; tid < THREADSPERWARP; tid++) {
+        if (!sm_instr->active_mask[tid]) {
+          continue;
+        }
+
+        warps_[warp_id].rf_[instr->dest_reg].register_values_[tid] =
+            result[tid];
+      }
 
       break;
     }

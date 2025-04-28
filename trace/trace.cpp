@@ -148,6 +148,10 @@ op_width parseOpWidth(std::string op_width_str) {
         return S32;
     } else if (op_width_str == "s64") {
         return S64;
+    } else if (op_width_str == "b32") {
+        return B32;
+    } else if (op_width_str == "pred") {
+        return PRED;
     }
 
     throw std::runtime_error("Could not parse op width: " + op_width_str);
@@ -238,6 +242,10 @@ void parseOperatorInfo(trace_op *new_trace_op, std::string operator_info_string)
             new_trace_op->variant = SETP_LT;
         } else if (modifier_strs[0] == "gt") {
             new_trace_op->variant = SETP_GT;
+        } else if (modifier_strs[0] == "eq") {
+            new_trace_op->variant = SETP_EQ;
+        } else if (modifier_strs[0] == "ne") {
+            new_trace_op->variant = SETP_NE;
         } else {
             throw std::runtime_error("Unsupported variant of setp: " + modifier_strs[0]);
         }
@@ -279,6 +287,21 @@ void parseOperatorInfo(trace_op *new_trace_op, std::string operator_info_string)
     } else if (op_str == "ret") {
         new_trace_op->op = RET;
         assert(modifier_strs.size() == 0);
+    } else if (op_str == "and") {
+        new_trace_op->op = AND;
+        assert(modifier_strs.size() == 1); // AND always has a type attached
+
+        new_trace_op->width = parseOpWidth(modifier_strs[0]);
+    } else if (op_str == "xor") {
+        new_trace_op->op = XOR;
+        assert(modifier_strs.size() == 1);
+
+        new_trace_op->width = parseOpWidth(modifier_strs[0]);
+    } else if (op_str == "not") {
+        new_trace_op->op = NOT;
+        assert(modifier_strs.size() == 1);
+
+        new_trace_op->width = parseOpWidth(modifier_strs[0]);
     } else {
         throw std::runtime_error("Could not parse operator info: " + operator_info_string);
     }
@@ -363,7 +386,8 @@ void parseInstruction(std::set<std::string> &register_names, trace_op *new_trace
         case MOV :
         case CVTA :
         case ST :
-        case LD : {
+        case LD :
+        case NOT : {
             assert(operand_strings.size() == 2);
             new_trace_op->dest_reg = make_char_array(operand_strings[0]);
             parsed_operands.push_back(
@@ -376,7 +400,9 @@ void parseInstruction(std::set<std::string> &register_names, trace_op *new_trace
         case ADD :
         case SUB :
         case SHR :
-        case SETP : {
+        case SETP :
+        case AND :
+        case XOR : {
             assert(operand_strings.size() == 3);
             new_trace_op->dest_reg = make_char_array(operand_strings[0]);
 

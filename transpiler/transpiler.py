@@ -230,6 +230,47 @@ class Shr(Translation):
 
         return currentState, f"shr.{size} {dest} {src1} {src2}\n"
 
+class And(Translation):
+    def match(self, line: str, currentState: TranspilerState) -> bool:
+        return line.startswith("and.")
+
+    def transform(self, currentState: TranspilerState, line: str) -> tuple[TranspilerState, str]:
+        operator, dest, src1, src2 = line.split()
+        dest = dest[:-1]
+        src1 = src1[:-1]
+        src2 = src2[:-1]
+
+        _, variant = operator.split(".")
+
+        return currentState, f"and.{variant} {dest} {src1} {src2}\n"
+
+class Xor(Translation):
+    def match(self, line: str, currentState: TranspilerState) -> bool:
+        return line.startswith("xor.")
+
+    def transform(self, currentState: TranspilerState, line: str) -> tuple[TranspilerState, str]:
+        operator, dest, src1, src2 = line.split()
+        dest = dest[:-1]
+        src1 = src1[:-1]
+        src2 = src2[:-1]
+
+        _, variant = operator.split(".")
+
+        return currentState, f"xor.{variant} {dest} {src1} {src2}\n"
+
+class Not(Translation):
+    def match(self, line: str, currentState: TranspilerState) -> bool:
+        return line.startswith("not.")
+
+    def transform(self, currentState: TranspilerState, line: str) -> tuple[TranspilerState, str]:
+        operator, dest, src1 = line.split()
+        dest = dest[:-1]
+        src1 = src1[:-1]
+
+        _, variant = operator.split(".")
+
+        return currentState, f"not.{variant} {dest} {src1}\n"
+
 class Load(Translation):
     def match(self, line: str, currentState: TranspilerState) -> bool:
         return line.startswith("ld.")
@@ -292,8 +333,8 @@ def processLine(translations : list[Translation], outputFile, line : str, curren
         raise Exception("No translation matches line: " + line)
 
 if __name__ == "__main__":
-    ptxFile=open("ptx_binsearch_hard.txt","r")
-    outputFile=open("trace_binsearch_hard.txt","w+")
+    ptxFile=open("ptx_collatz.txt","r")
+    outputFile=open("collatz.txt","w+")
 
     lines=ptxFile.readlines()
 
@@ -316,7 +357,10 @@ if __name__ == "__main__":
         Load,
         Store,
         Label,
-        Ret
+        Ret,
+        And,
+        Xor,
+        Not
     ]
 
     translations = [

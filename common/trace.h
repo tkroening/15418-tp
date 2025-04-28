@@ -40,7 +40,10 @@ enum op_type
     SHR,
     LD,
     ST,
-    RET
+    RET,
+    AND,
+    XOR,
+    NOT
 };
 
 enum op_width 
@@ -51,6 +54,8 @@ enum op_width
     U64,
     S32,
     S64,
+    B32,
+    PRED // Like a boolean?
 };
 
 enum op_space
@@ -67,6 +72,8 @@ enum op_variant
     SETP_GE,
     SETP_LT,
     SETP_GT,
+    SETP_NE,
+    SETP_EQ,
     BRA_UNI
 };
 

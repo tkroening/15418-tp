@@ -49,14 +49,14 @@ class Register {
     std::array<Value, THREADSPERWARP> register_values_;
 };
 
+enum SchedulerType {
+  RECONVERGENCE_SCHEDULER,
+  NAIVE_SCHEDULER
+};
+
 /** @brief The arguments that need to be given to the Processor. */
 struct ProcessorArgs {
-  int d; /** Dispatch queue multiplier */
-  int f; /** Fetch rate (instructions per cycle) */
-  int m; /** Schedule queue multiplier */
-  int j; /** Number of "fast" ALUs */
-  int k; /** Number of "long" ALUs */
-  int c; /** Number of CDBs */
+  enum SchedulerType scheduler_type;
 };
 
 typedef struct _sm_instruction_t {

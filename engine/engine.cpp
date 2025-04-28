@@ -6,6 +6,7 @@
 #include <processor.h>
 #include <unistd.h>
 #include <libgen.h>
+#include <iostream>
 
 extern "C" {
     #include "config.h"
@@ -145,17 +146,16 @@ int main(int argc, char** argv)
     optind = 1;
     trace_reader *tr = (trace_reader *) trace->init(&tsa);
 
-    // TODO: Config files are disabled for now
-    // if (settingFile == NULL)
-    // {
-    //     fprintf(stderr, "No setting file specified, using default.config\n");
-    //     settingFile = "default.config";
-    // }
-    // if (openSettings(settingFile) != 0)
-    // {
-    //     fprintf(stderr, "Failed to open setting file - %s\n", settingFile);
-    //     return 0;
-    // }
+    if (settingFile == NULL)
+    {
+        fprintf(stderr, "No setting file specified, using default.config\n");
+        settingFile = "default.config";
+    }
+    if (openSettings(settingFile) != 0)
+    {
+        fprintf(stderr, "Failed to open setting file - %s\n", settingFile);
+        return 0;
+    }
 
     if (procName == NULL)
     {
@@ -178,7 +178,7 @@ int main(int argc, char** argv)
     processor* proc_sim = NULL;
 
     optind = 1;
-    // arg = getSettings("processor", &argCount);
+    arg = getSettings("processor", &argCount);
     if (arg == NULL) {}
 
     processor_sim_args psa;

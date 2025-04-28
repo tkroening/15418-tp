@@ -1,5 +1,7 @@
+#include "scheduler.h"
 #include <getopt.h>
 #include <iostream>
+#include <stdexcept>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -43,33 +45,22 @@ extern "C" processor *init(processor_sim_args *psa) {
 
   // TODO: Replace with something relevant to SMs. For now, this is a dummy
   ProcessorArgs processor_args;
+  processor_args.scheduler_type = RECONVERGENCE_SCHEDULER;
 
   // TODO - get argument list from assignment
-  while ((op = getopt(psa->arg_count, psa->arg_list, "f:d:m:j:k:c:")) != -1) {
+  while ((op = getopt(psa->arg_count, psa->arg_list, "s:")) != -1) {
     switch (op) {
-    // fetch rate
-    case 'f':
-      break;
+      case 's' : {
+        if (strcmp(optarg, "reconvergence") == 0) {
+          processor_args.scheduler_type = RECONVERGENCE_SCHEDULER;
+        } else if (strcmp(optarg, "naive") == 0) {
+          processor_args.scheduler_type = NAIVE_SCHEDULER;
+        } else {
+          throw std::runtime_error("Unsupported scheduler type");
+        }
 
-    // dispatch queue multiplier
-    case 'd':
-      break;
-
-    // Schedule queue multiplier
-    case 'm':
-      break;
-
-    // Number of fast ALUs
-    case 'j':
-      break;
-
-    // Number of long ALUs
-    case 'k':
-      break;
-
-    // Number of CDBs
-    case 'c':
-      break;
+        break;
+      }
     }
   }
 

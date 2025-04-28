@@ -186,7 +186,12 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
 
   instructions_ = instrs;
   cfg_ = new CFG(instrs);
-  scheduler_ = new Scheduler(this);
+  
+  if (args.scheduler_type == RECONVERGENCE_SCHEDULER) {
+    scheduler_ = new ReconvergenceScheduler(this);
+  } else {
+    scheduler_ = new NaiveScheduler(this);
+  }
 }
 
 warp_t *SM::GetWarpPointer(int warp_id) {

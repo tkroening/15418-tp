@@ -70,7 +70,8 @@ class SM {
 public:
   // Constructor
   SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
-     trace_reader *tr, cache *cs, branch *bs, int activeWarps, int smid);
+     trace_reader *tr, cache *cs, branch *bs, int activeWarps, int smid,
+     std::deque<std::pair<trace_op *, uint64_t>> dqueueTop);
 
   ProcessorArgs args_;
 
@@ -88,6 +89,10 @@ public:
 
   /** @brief The branch predictor simulator pointer, not current focus*/
   branch *bs_;
+
+  /** @brief The master queue that stores all instructions, needed when you load
+   * new block in*/
+  std::deque<std::pair<trace_op *, uint64_t>> dqueue_;
 
   /**the queue of active warps waiting for a slot */
   std::queue<warp_t *> waitingWarps;

@@ -10,9 +10,10 @@ int64_t makeTag(int procNum, int64_t baseTag) {
 
 // Constructor
 SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
-       trace_reader *tr, cache *cs, branch *bs, int activeWarps, int smid)
+       trace_reader *tr, cache *cs, branch *bs, int activeWarps, int smid,
+       std::deque<std::pair<trace_op *, uint64_t>> dqueueTop)
     : memOpCallback_(memOpCallback), args_(args), ps_(self), tr_(tr), cs_(cs),
-      bs_(bs), smid_(smid) {
+      bs_(bs), smid_(smid), dqueue_(dqueueTop) {
   instructionCount_ = 0; // question: do I need self????
   // initialize registers and state of each warp
 
@@ -60,6 +61,7 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
   // move data from allWarps to waitingWarps;
   for (int i = 0; i < activeWarps; i++) {
     warp_t *currWarp = &(allWarps[i]);
+    assert(currWarp->warpState == UNINITIALIZED);
     assert(currWarp->dq_.front().second == -1);
     waitingWarps.push(currWarp);
   }
@@ -115,6 +117,10 @@ std::pair<trace_op *, uint64_t> SM::scheduler() {
   for (int i = 0; i < MAXWARPS; i++) {
     // std::cout << "Warp " << i << " state: " << warps_[i].warpState <<
     // std::endl;
+    // skip unused warps
+    if (warps_[i] == NULL)
+      continue;
+
     if (warps_[i]->warpState == FINISHED ||
         warps_[i]->warpState == UNINITIALIZED) {
       continue;
@@ -200,6 +206,7 @@ std::pair<trace_op *, uint64_t> SM::scheduler() {
         // checks if there are any warp in the waiting queue we can grab
         // as we are stalling
         if (waitingWarps.size() > 0) {
+          assert(warps_[i]->warpState == STALLED);
           waitingWarps.push(warps_[i]);
           warps_[i] = waitingWarps.front();
           waitingWarps.pop();
@@ -215,8 +222,7 @@ std::pair<trace_op *, uint64_t> SM::scheduler() {
               currWarp->rf_[reg] = {.regNum = reg, .ready = true};
             }
             printf("warpState: %d\n", currWarp->warpState);
-            assert(currWarp->warpState != STALLED &&
-                   currWarp->warpState == UNINITIALIZED);
+            assert(currWarp->warpState != STALLED);
             currWarp->warpState = RUNNABLE;
           }
         }

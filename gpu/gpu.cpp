@@ -12,7 +12,8 @@ extern "C" {
 }
 
 #include "sm.h"
-#define TOTALTHREADS 32 * 64;
+#define TOTALTHREADS 32 * 1;
+#define THREADSPERBLOCK 32 * 1;
 #define BLOCKS 1;
 #define THREADSPERWARP 32;
 #define NUMSM 1;
@@ -41,6 +42,28 @@ void memOpCallback(int sm_id, int64_t tag) {
   printf("got data from warp %d\n", sm_id);
   bool processorHadPendingRequest = sm->handleMemOpCallback(tag);
   assert(processorHadPendingRequest);
+}
+
+std::deque<std::pair<trace_op *, uint64_t>> dqueueTop;
+void parseInstructions() {
+  trace_op *op;
+
+  while (true) {
+    // TODO: Hardcoded PID 0 because all warps will be getting same instructions
+    // anyway (?)
+    op = tr->getNextOp(0);
+    // if we reach end of trace file we break out of loop
+    if (op == NULL) {
+      std::cout << "Finished reading tracefile (hit NULL). Read " << std::endl;
+      break;
+    } else {
+      // adds the op onto the instruction queue of all initialized threads
+
+      // if (currWarp->warpState != UNINITIALIZED)
+      (dqueueTop).push_back({op, -1}); // NOTE: -1 as we don't know which
+                                       // slot they belong in
+    }
+  }
 }
 
 //
@@ -91,6 +114,7 @@ extern "C" processor *init(processor_sim_args *psa) {
   pendingBranch = (int *)calloc(processorCount, sizeof(int));
   pendingMem = (int *)calloc(processorCount, sizeof(int));
   memOpTag = (int64_t *)calloc(processorCount, sizeof(int64_t));
+  // parseInstructions();
 
   processor *self = new processor;
   self->si.tick = tick;
@@ -107,7 +131,7 @@ extern "C" processor *init(processor_sim_args *psa) {
     SM *new_sm = new SM(memOpCallback, processor_args, self, tr, cs, bs,
                         totalWarps, // TODO: Why is activeWarps an int? Why is
                                     // it passed in the constructor
-                        SMID);
+                        SMID, dqueueTop);
 
     streaming_multiprocessors.push_back(new_sm);
   }
@@ -118,23 +142,6 @@ extern "C" processor *init(processor_sim_args *psa) {
 const int64_t STALL_TIME = 100000;
 int64_t tickCount = 0;
 int64_t stallCount = -1;
-
-// int64_t makeTag(int procNum, int64_t baseTag) {
-//   return ((int64_t)procNum) | (baseTag << 8);
-// }
-
-// void memOpCallback(int procNum, int64_t tag) {
-//   int64_t baseTag = (tag >> 8);
-
-//   // Is the completed memop one that is pending?
-//   if (baseTag == memOpTag[procNum]) {
-//     memOpTag[procNum]++;
-//     pendingMem[procNum] = 0;
-//     stallCount = tickCount + STALL_TIME;
-//   } else {
-//     printf("memopTag: %ld != tag %ld\n", memOpTag[procNum], tag);
-//   }
-// }
 
 extern "C" int tick(void) {
   // if room in pipeline, request op from trace

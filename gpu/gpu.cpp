@@ -12,8 +12,7 @@ extern "C" {
 }
 
 #include "sm.h"
-#define TOTALTHREADS 32 * 1;
-#define THREADSPERBLOCK 32 * 1;
+#define THREADSPERBLOCK 32 * 2;
 #define BLOCKS 1;
 #define THREADSPERWARP 32;
 #define NUMSM 1;
@@ -25,26 +24,28 @@ branch *bs = NULL;
 // processor* self = NULL;
 std::vector<SM *> streaming_multiprocessors;
 
-int processorCount = 1;
+int processorCount = NUMSM;
 int CADSS_VERBOSE = 0;
 
 int *pendingMem = NULL;
 int *pendingBranch = NULL;
 int64_t *memOpTag = NULL;
 
+int remainingBlocks; // counts how many remaining blocks we have
+
 // Need this prototype so the reference is defined in `init`:
 void memOpCallback(int, int64_t);
 
-void memOpCallback(int sm_id, int64_t tag) {
-  auto sm = streaming_multiprocessors[0];
+void memOpCallback(int core_id, int64_t tag) {
+  auto sm = streaming_multiprocessors[core_id];
 
   // Notify the processor
-  printf("got data from warp %d\n", sm_id);
+  printf("got data from core %d\n", core_id);
   bool processorHadPendingRequest = sm->handleMemOpCallback(tag);
   assert(processorHadPendingRequest);
 }
 
-std::deque<std::pair<trace_op *, uint64_t>> dqueueTop;
+std::deque<std::pair<trace_op *, int>> dqueueTop;
 void parseInstructions() {
   trace_op *op;
 
@@ -73,8 +74,9 @@ void parseInstructions() {
 //
 extern "C" processor *init(processor_sim_args *psa) {
   int op;
-  int totalThreads = TOTALTHREADS;
-  int totalWarps = totalThreads / THREADSPERWARP;
+  int threadsPerBlock = THREADSPERBLOCK;
+  int totalWarps = threadsPerBlock / THREADSPERWARP;
+  remainingBlocks = BLOCKS;
   tr = psa->tr;
   cs = psa->cache_sim;
   bs = psa->branch_sim;
@@ -114,7 +116,7 @@ extern "C" processor *init(processor_sim_args *psa) {
   pendingBranch = (int *)calloc(processorCount, sizeof(int));
   pendingMem = (int *)calloc(processorCount, sizeof(int));
   memOpTag = (int64_t *)calloc(processorCount, sizeof(int64_t));
-  // parseInstructions();
+  parseInstructions();
 
   processor *self = new processor;
   self->si.tick = tick;
@@ -122,11 +124,13 @@ extern "C" processor *init(processor_sim_args *psa) {
   self->si.destroy = destroy;
 
   // Initialize all streaming multiprocessors -- just one for now
-  uint num_SMs = 1;
+  uint num_SMs = NUMSM;
   for (int SMID = 0; SMID < num_SMs; SMID++) {
     // SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor
     // *self, trace_reader *tr, cache *cs, branch *bs, int activeWarps, int
     // smid);
+    if (remainingBlocks == 0)
+      break; // stop if we run out blocks
 
     SM *new_sm = new SM(memOpCallback, processor_args, self, tr, cs, bs,
                         totalWarps, // TODO: Why is activeWarps an int? Why is
@@ -134,6 +138,7 @@ extern "C" processor *init(processor_sim_args *psa) {
                         SMID, dqueueTop);
 
     streaming_multiprocessors.push_back(new_sm);
+    remainingBlocks--;
   }
 
   return self;
@@ -170,6 +175,7 @@ extern "C" int tick(void) {
   }
 
   int progress = 0;
+
   for (auto &sm : streaming_multiprocessors) {
     /*
         Process pipeline phases backwards
@@ -179,13 +185,22 @@ extern "C" int tick(void) {
         - Mem
         - WB
     */
+    int localProgress = 0; // progress of a certain core
 
-    progress |= sm->WriteBack();
-    progress |= sm->Mem_falling();
-    progress |= sm->Mem();
-    progress |= sm->Execute();
-    progress |= sm->Decode();
-    progress |= sm->Fetch();
+    localProgress |= sm->WriteBack();
+    localProgress |= sm->Mem_falling();
+    localProgress |= sm->Mem();
+    localProgress |= sm->Execute();
+    localProgress |= sm->Decode();
+    localProgress |= sm->Fetch();
+
+    // give a SM another thread block if it is finished
+    if (localProgress == 0 && remainingBlocks > 0) {
+      sm->reinit();
+      localProgress = 1;
+      remainingBlocks--;
+    }
+    progress |= localProgress;
   }
 
   return progress;

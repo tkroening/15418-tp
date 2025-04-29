@@ -102,7 +102,7 @@ void memoryRequest(trace_op *op, int processorNum, int64_t tag,
   pendingRequest pendingElement = (pendingRequest){.tag = tag,
                                                    .procNum = processorNum,
                                                    .memCallback = callback,
-                                                   .count = 400};
+                                                   .count = 100};
 
   pending.push_back(pendingElement);
 }

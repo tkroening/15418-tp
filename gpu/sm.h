@@ -15,7 +15,7 @@ extern "C" {
 #define REGISTER_COUNT 18
 
 // TODO: This is a placeholder value for MAXWARPS. Replace this!
-#define MAXWARPS 64
+#define MAXWARPS 2
 
 typedef struct {
   int regNum; /** @brief The register's architectural number. */
@@ -56,7 +56,7 @@ typedef struct warp {
 
   /** @brief The instruction queue, storing trace ops and their ids.
       need 1 for each warp*/
-  std::deque<std::pair<trace_op *, uint64_t>>
+  std::deque<std::pair<trace_op *, int>>
       dq_; // need double queue as you need to peak at instructions in the
            // front
 
@@ -71,7 +71,7 @@ public:
   // Constructor
   SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
      trace_reader *tr, cache *cs, branch *bs, int activeWarps, int smid,
-     std::deque<std::pair<trace_op *, uint64_t>> dqueueTop);
+     std::deque<std::pair<trace_op *, int>> dqueueTop);
 
   ProcessorArgs args_;
 
@@ -92,7 +92,7 @@ public:
 
   /** @brief The master queue that stores all instructions, needed when you load
    * new block in*/
-  std::deque<std::pair<trace_op *, uint64_t>> dqueue_;
+  std::deque<std::pair<trace_op *, int>> dqueue_;
 
   /**the queue of active warps waiting for a slot */
   std::queue<warp_t *> waitingWarps;
@@ -108,7 +108,8 @@ public:
   bool Mem_falling();
   bool WriteBack();
   bool handleMemOpCallback(int64_t tag);
-  std::pair<trace_op *, uint64_t> scheduler();
+  void reinit();
+  std::pair<trace_op *, int> scheduler();
 
 private:
   /** @brief The sm number, currently just doing 1 */

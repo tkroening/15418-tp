@@ -11,7 +11,7 @@ int64_t makeTag(int procNum, int64_t baseTag) {
 // Constructor
 SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
        trace_reader *tr, cache *cs, branch *bs, int activeWarps, int smid,
-       std::deque<std::pair<trace_op *, uint64_t>> dqueueTop)
+       std::deque<std::pair<trace_op *, int>> dqueueTop)
     : memOpCallback_(memOpCallback), args_(args), ps_(self), tr_(tr), cs_(cs),
       bs_(bs), smid_(smid), dqueue_(dqueueTop) {
   instructionCount_ = 0; // question: do I need self????
@@ -20,22 +20,32 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
   activeWarps_ = activeWarps;
   stallCount_ = 0;
   allWarps.resize(activeWarps);
+  std::cout << "instruction length= " << dqueueTop.size() << std::endl;
 
   // make all warps uninitialized
-  for (int i = 0; i < activeWarps; i++) {
+  for (int i = 0; i < activeWarps_; i++) {
     warp_t *currWarp = &(allWarps[i]);
     currWarp->warpState = UNINITIALIZED;
   }
 
   // Might not need this for loop due to previous for loop
-  for (int i = 0; i < MAXWARPS; i++) {
+  for (int i = 0; i < (std::min(MAXWARPS, activeWarps)); i++) {
     warp_t *currWarp = &(allWarps[i]); // question: do I need self.warps[i]????
+    assert(currWarp != NULL);
     currWarp->warpState = UNINITIALIZED;
   }
 
   /** @brief moves all ops onto instruction queue of warps */
   trace_op *op;
 
+  for (int i = 0; i < activeWarps; i++) {
+    warp_t *currWarp = &(allWarps[i]);
+    // if (currWarp->warpState != UNINITIALIZED)
+    currWarp->dq_ = dqueue_; // NOTE: -1 as we don't know which
+                             // slot they belong in
+  }
+
+  /*
   while (true) {
     // TODO: Hardcoded PID 0 because all warps will be getting same instructions
     // anyway (?)
@@ -51,12 +61,12 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
         warp_t *currWarp = &(allWarps[i]);
         // if (currWarp->warpState != UNINITIALIZED)
         (currWarp->dq_).push_back({op, -1}); // NOTE: -1 as we don't know which
-                                             // slot they belong in
+        // slot they belong in
       }
       instructionCount_++;
       assert((allWarps[0].dq_).size() == instructionCount_);
     }
-  }
+  }*/
 
   // move data from allWarps to waitingWarps;
   for (int i = 0; i < activeWarps; i++) {
@@ -82,8 +92,8 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
     }
   }
 
-  printf("instruction count: %d\n", instructionCount_);
-  assert((warps_[0]->dq_).size() == instructionCount_);
+  // printf("instruction count: %d\n", instructionCount_);
+  // assert((warps_[0]->dq_).size() == instructionCount_);
   assert(warps_[0]->dq_.front().second == -1);
 
   // QUESTION: when we read all ops do we
@@ -111,7 +121,7 @@ SM::SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor *self,
 
 // TODO: I think this was meant to belong to the SM class? This needs to be
 // double-checked.
-std::pair<trace_op *, uint64_t> SM::scheduler() {
+std::pair<trace_op *, int> SM::scheduler() {
   bool isStalled = false;
 
   for (int i = 0; i < MAXWARPS; i++) {
@@ -324,7 +334,7 @@ bool SM::Fetch() {
 
   // If the register is -1, it means no register is required.
   if (dest != -1) {
-    printf("register %d is used", dest);
+    printf("register %d is used\n", dest);
     scheduledWarp->rf_[dest].ready = false;
   }
 
@@ -467,7 +477,7 @@ bool SM::Mem() {
     wait.tag = tag;
     mem_waiting_vector.push_back(
         wait); // add this to the instructions awaiting memory
-    cs_->memoryRequest(instr, 0, tag, memOpCallback_);
+    cs_->memoryRequest(instr, smid_, tag, memOpCallback_);
     return true;
   }
 
@@ -599,4 +609,75 @@ bool SM::handleMemOpCallback(int64_t tag) {
   printf("should not happen\n");
   assert(false);
   return false;
+}
+
+/******************************************************************************
+ give the SM another block to process
+ ******************************************************************************/
+
+void SM::reinit() {
+  assert(waitingWarps.size() == 0);
+  instructionCount_ = 0; // question: do I need self????
+  // initialize registers and state of each warp
+
+  stallCount_ = 0;
+  allWarps.resize(activeWarps_);
+
+  // make all warps uninitialized
+  for (int i = 0; i < activeWarps_; i++) {
+    warp_t *currWarp = &(allWarps[i]);
+    currWarp->warpState = UNINITIALIZED;
+  }
+
+  // Might not need this for loop due to previous for loop
+  for (int i = 0; i < (std::min(MAXWARPS, activeWarps_)); i++) {
+    warp_t *currWarp = &(allWarps[i]); // question: do I need self.warps[i]????
+    assert(currWarp != NULL);
+    currWarp->warpState = UNINITIALIZED;
+  }
+
+  /** @brief moves all ops onto instruction queue of warps */
+  trace_op *op;
+
+  for (int i = 0; i < activeWarps_; i++) {
+    warp_t *currWarp = &(allWarps[i]);
+    // if (currWarp->warpState != UNINITIALIZED)
+    currWarp->dq_ = dqueue_; // NOTE: -1 as we don't know which
+                             // slot they belong in
+  }
+
+  // move data from allWarps to waitingWarps;
+  for (int i = 0; i < activeWarps_; i++) {
+    warp_t *currWarp = &(allWarps[i]);
+    assert(currWarp->warpState == UNINITIALIZED);
+    assert(currWarp->dq_.front().second == -1);
+    waitingWarps.push(currWarp);
+  }
+
+  // pop data from waitingWarps to
+  for (int i = 0; i < std::min(activeWarps_, MAXWARPS); i++) {
+    warps_[i] = waitingWarps.front();
+    assert(waitingWarps.front()->dq_.front().second == -1);
+    assert(warps_[i]->dq_.front().second == -1);
+    waitingWarps.pop();
+    warp_t *currWarp = (warps_[i]);
+
+    currWarp->warpState = RUNNABLE;
+
+    // Initialize the register file to have all registers be ready.
+    for (int reg = 0; reg < REGISTER_COUNT; reg++) {
+      currWarp->rf_[reg] = {.regNum = reg, .ready = true};
+    }
+  }
+
+  // printf("instruction count: %d\n", instructionCount_);
+  // assert((warps_[0]->dq_).size() == instructionCount_);
+  assert(warps_[0]->dq_.front().second == -1);
+
+  // QUESTION: when we read all ops do we
+
+  // initialize insturction queue of each warp
+
+  // initialize stalling counter
+  memTickDelayCounter = 0;
 }

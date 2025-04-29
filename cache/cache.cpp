@@ -13,7 +13,7 @@ typedef struct _pendingRequest {
   int64_t tag;
   int8_t procNum;
   void (*memCallback)(int, int64_t);
-  int64_t count;
+  int64_t count; // keeps track of how many ticks we need to stall
 } pendingRequest;
 
 cache *self = NULL;
@@ -99,10 +99,11 @@ void memoryRequest(trace_op *op, int processorNum, int64_t tag,
   //     pending.memCallback(pending.procNum, pending.tag);
   //   }
 
-  pendingRequest pendingElement = (pendingRequest){.tag = tag,
-                                                   .procNum = processorNum,
-                                                   .memCallback = callback,
-                                                   .count = 100};
+  pendingRequest pendingElement =
+      (pendingRequest){.tag = tag,
+                       .procNum = processorNum,
+                       .memCallback = callback,
+                       .count = 100}; // sets how long to stall memory
 
   pending.push_back(pendingElement);
 }

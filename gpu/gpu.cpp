@@ -11,11 +11,14 @@ extern "C" {
 #include "trace.h"
 }
 
+// CITATION: refrenced Theo's 15346 assignments, mainly processor lab
+
 #include "sm.h"
+// change parameters here!!!
 #define THREADSPERBLOCK 32 * 2;
-#define BLOCKS 1;
+#define BLOCKS 2;
 #define THREADSPERWARP 32;
-#define NUMSM 1;
+#define NUMSM 2;
 
 trace_reader *tr = NULL;
 cache *cs = NULL;
@@ -40,17 +43,18 @@ void memOpCallback(int core_id, int64_t tag) {
   auto sm = streaming_multiprocessors[core_id];
 
   // Notify the processor
-  printf("got data from core %d\n", core_id);
+  printf("got data for core %d\n", core_id);
   bool processorHadPendingRequest = sm->handleMemOpCallback(tag);
   assert(processorHadPendingRequest);
 }
 
+// parses the instructions to prepare instruction queue for all warps
 std::deque<std::pair<trace_op *, int>> dqueueTop;
 void parseInstructions() {
   trace_op *op;
 
   while (true) {
-    // TODO: Hardcoded PID 0 because all warps will be getting same instructions
+    // Hardcoded PID 0 because all warps will be getting same instructions
     // anyway (?)
     op = tr->getNextOp(0);
     // if we reach end of trace file we break out of loop
@@ -113,22 +117,21 @@ extern "C" processor *init(processor_sim_args *psa) {
     }
   }
 
+  // branches not supported yet
   pendingBranch = (int *)calloc(processorCount, sizeof(int));
   pendingMem = (int *)calloc(processorCount, sizeof(int));
   memOpTag = (int64_t *)calloc(processorCount, sizeof(int64_t));
-  parseInstructions();
+  parseInstructions(); // parse the trace file to determine instructions
 
   processor *self = new processor;
   self->si.tick = tick;
   self->si.finish = finish;
   self->si.destroy = destroy;
 
-  // Initialize all streaming multiprocessors -- just one for now
+  // Initialize all streaming multiprocessors
   uint num_SMs = NUMSM;
   for (int SMID = 0; SMID < num_SMs; SMID++) {
-    // SM(void (*memOpCallback)(int, int64_t), ProcessorArgs args, processor
-    // *self, trace_reader *tr, cache *cs, branch *bs, int activeWarps, int
-    // smid);
+
     if (remainingBlocks == 0)
       break; // stop if we run out blocks
 
@@ -200,7 +203,8 @@ extern "C" int tick(void) {
       localProgress = 1;
       remainingBlocks--;
     }
-    progress |= localProgress;
+    progress |=
+        localProgress; // make local progress contribute to global progress
   }
 
   return progress;

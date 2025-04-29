@@ -11,10 +11,12 @@ extern "C" {
 #include "trace.h"
 }
 
-// TODO: This is a placeholder value for REGISTER_COUNT. Replace this!
+// CITATION: refrenced Theo's 15346 assignments, mainly processor lab
+
+// Use this to specify number of registers per warp
 #define REGISTER_COUNT 18
 
-// TODO: This is a placeholder value for MAXWARPS. Replace this!
+// Modify this to specify the number of warp slots on a GPU
 #define MAXWARPS 2
 
 typedef struct {
@@ -29,7 +31,8 @@ typedef struct {
   int64_t tag;
 } mem_waiting_t; // an entry of data waiting for memory
 
-/** @brief The arguments that need to be given to the Processor. */
+/** @brief The arguments that need to be given to the Processor, not currently
+ * used in simulator */
 struct ProcessorArgs {
   int d; /** Dispatch queue multiplier */
   int f; /** Fetch rate (instructions per cycle) */
@@ -42,9 +45,9 @@ struct ProcessorArgs {
 /** @brief A warp can either be running, runnable, stalled, or not initialized .
  */
 typedef enum state {
-  RUNNING, // multiple warps can be running at same time due to piplelined arch
+  RUNNING,
   RUNNABLE,
-  STALLED, // when memory stalls
+  STALLED, // when we hit a barrier
   UNINITIALIZED,
   FINISHED
 } state_t;
@@ -54,16 +57,12 @@ typedef struct warp {
   /** @brief The register file, need 1 for each warp */
   std::array<Register_t, REGISTER_COUNT> rf_;
 
-  /** @brief The instruction queue, storing trace ops and their ids.
-      need 1 for each warp*/
+  /** @brief The instruction queue, storing trace ops which warp_id.
+      need 1 for each warp, warp id default to -1*/
   std::deque<std::pair<trace_op *, int>>
       dq_; // need double queue as you need to peak at instructions in the
            // front
 
-  /** @brief Sorted queue of finished instructions. */
-
-  // TODO: Replaced vector type - idk what was going here before
-  std::vector<int> finished_instructions_;
 } warp_t;
 
 class SM {
@@ -91,7 +90,7 @@ public:
   branch *bs_;
 
   /** @brief The master queue that stores all instructions, needed when you load
-   * new block in*/
+   * new block in in reinit and constructor*/
   std::deque<std::pair<trace_op *, int>> dqueue_;
 
   /**the queue of active warps waiting for a slot */
@@ -118,19 +117,16 @@ private:
   /** @brief the number of warps in use */
   int activeWarps_;
 
-  /** @brief structure that stores all info about warps, similar to thread
-   * control block*/
+  /** @brief structure that stores all about warps currently in warp slots,
+   * similar to thread control block*/
   std::array<warp_t *, MAXWARPS> warps_;
-
-  /** @brief Whether  a pending branch request. */
-  std::optional<uint64_t> pending_branch_;
 
   /** @brief Function pointer for memOpCallback */
   void (*memOpCallback_)(int, int64_t);
 
   /*
       Various queues. Recall the classic five-stage pipeline:
-      Fetch -> Decode -> Execute -> Mem -> Write Back
+      Fetch -> Decode -> Execute -> Mem -> mem_falling-> Write Back
   */
 
   /** @brief The queue of instructions going into decode stage

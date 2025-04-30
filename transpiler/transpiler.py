@@ -1,11 +1,18 @@
 """
 PTX Transpiler
 
+Translates limited subset of PTX into a simpler syntax. Also breaks down fused
+instructions into simpler, separated instructions.
+
 Authors:
 - Ethan Lu <eblu@andrew.cmu.edu>
 - Theo Kroening <tkroenin@andrew.cmu.edu>
+
+Input and Output file-names are command line arguments, for example:
+python3 transpiler.py ptx_saxpy.txt saxpy.txt
 """
 
+import argparse
 from enum import Enum
 
 class TranspilerState(Enum):
@@ -333,8 +340,21 @@ def processLine(translations : list[Translation], outputFile, line : str, curren
         raise Exception("No translation matches line: " + line)
 
 if __name__ == "__main__":
-    ptxFile=open("ptx_collatz.txt","r")
-    outputFile=open("collatz.txt","w+")
+    parser = argparse.ArgumentParser(
+        description='Transpile a PTX file to a simplified format.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter # Show defaults
+    )
+    parser.add_argument(
+        'input_file',
+        help='Path to the input PTX file.'
+    )
+    parser.add_argument(
+        'output_file',
+        help='Path for the output transpiled file.'
+    )
+    args = parser.parse_args() # Parse command-line arguments
+    ptxFile=open(args.input_file,"r")
+    outputFile=open(args.output_file,"w+")
 
     lines=ptxFile.readlines()
 

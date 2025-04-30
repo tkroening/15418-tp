@@ -695,10 +695,8 @@ void SM::DoComputation(sm_instruction_t *sm_instr) {
   dbg_printf("SM::DoComputation(%s) ", op_to_string(instr->op).c_str());
   for (int tid = 0; tid < THREADSPERWARP; tid++) {
     dbg_printf("%d", sm_instr->active_mask[tid] ? 1 : 0);
-    std::cout << sm_instr->active_mask[tid];
   }
   dbg_printf("\n");
-  std::cout << std::endl;
 
 
   // Want to fetch all of the "source" values

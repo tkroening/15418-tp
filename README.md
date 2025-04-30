@@ -17,7 +17,7 @@ This is the final submission of the Scaling simulator. This simulator is not abl
 1. Add clone the repo
 2. Run cmake .
 3. run make
-4. run the command gdb --args ./cadss-engine -n 1 -c<cache or refCache> -o refCoherence -p gpu -t traces/<your trace.trace>  -s ex_proc.config
+4. run the command gdb --args ./cadss-engine -n 1 -c<cache_or_refCache> -o refCoherence -p gpu -t traces/<your_trace.trace>  -s ex_proc.config
 
     
 ## how to configure

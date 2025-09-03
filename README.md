@@ -1,11 +1,8 @@
-Computer Architecture Design Simulator for Students
+# Simulating GPUs in CADSS
+## by Theo Kroening and Ethan Lu
 
-This repository contains a multi-component integrated simulator to support
-computer architecture students writing simulation models of different
-computer architecture components, such as caches, branch predictors, or
-coherence protocols.  The provided code handles trace reading and
-initialization of simple components.
+This page contains the project poster and detailed project report of our GPU simulator. 
 
-Reference implentations are available upon request.
+For scaleing simulator code and build instructions, please visit the ScaleingFinal branch
 
-Other support code and files can be found at https://github.com/bprail/cadss_support.
+For divergence simulator code and build instructions, please visit the saxpy-demo branch
